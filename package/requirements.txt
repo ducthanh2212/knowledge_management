@@ -1,0 +1,16 @@
+# ETL Pipeline Requirements
+# KBS Adaptive Learning System - Member 1
+
+# Data processing
+pandas==2.1.4
+openpyxl==3.1.2
+
+# PostgreSQL
+psycopg2-binary==2.9.9
+
+# Neo4j
+neo4j==5.14.1
+
+# Optional: For advanced features
+# sqlalchemy==2.0.23
+# python-dotenv==1.0.0
