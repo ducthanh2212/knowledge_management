@@ -237,9 +237,11 @@ class QuestionProcessor:
                     INSERT INTO questions (
                         subject_id, topic_id, question_type_id,
                         content, explanation, difficulty, bloom_level,
-                        avg_time_sec, source_type, source_reference, is_active
+                        avg_time_sec, source, source_reference, is_active
                     )
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (subject_id, content)
+                    DO UPDATE SET content = EXCLUDED.content
                     RETURNING question_id
                 """, (
                     subject_id,
@@ -311,6 +313,9 @@ class QuestionOptionsProcessor:
             """
             INSERT INTO question_options (question_id, option_label, option_text, is_correct)
             VALUES %s
+            ON CONFLICT (question_id, option_label)
+            DO UPDATE SET option_text = EXCLUDED.option_text,
+                        is_correct = EXCLUDED.is_correct;
             """,
             options_data
         )
