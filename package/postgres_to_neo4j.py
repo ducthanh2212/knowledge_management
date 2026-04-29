@@ -26,7 +26,7 @@ NEO4J_PASSWORD = "12345678"
 
 BATCH_SIZE = 500
 MAX_RETRIES = 3
-GRAPH_VERSION = "v3.1"
+GRAPH_VERSION = "v4.0"
 
 CHECKPOINT_FILE = "sync_checkpoints.json"
 DEAD_LETTER_FILE = "dead_letter_batches.jsonl"
@@ -61,23 +61,23 @@ def get_neo_driver():
 
 
 # ============================================================
-# NORMALIZE TYPES
+# NORMALIZE
 # ============================================================
 
 
 def normalize_row(row):
     normalized = {}
 
-    for key, value in row.items():
+    for k, v in row.items():
 
-        if isinstance(value, Decimal):
-            normalized[key] = float(value)
+        if isinstance(v, Decimal):
+            normalized[k] = float(v)
 
-        elif isinstance(value, (datetime, date)):
-            normalized[key] = value.isoformat()
+        elif isinstance(v, (datetime, date)):
+            normalized[k] = v.isoformat()
 
         else:
-            normalized[key] = value
+            normalized[k] = v
 
     return normalized
 
@@ -109,10 +109,10 @@ def get_checkpoint(table_name):
     )
 
 
-def update_checkpoint(table_name):
+def update_checkpoint(table_name, latest_timestamp):
     checkpoints = load_checkpoints()
 
-    checkpoints[table_name] = datetime.now().isoformat()
+    checkpoints[table_name] = latest_timestamp
 
     save_checkpoints(checkpoints)
 
@@ -141,15 +141,10 @@ def log_dead_letter(table_name, batch, error):
 
 def create_constraints(session):
     constraints = [
-
         "CREATE CONSTRAINT subject_unique IF NOT EXISTS FOR (n:Subject) REQUIRE n.subject_id IS UNIQUE",
-
         "CREATE CONSTRAINT topic_unique IF NOT EXISTS FOR (n:Topic) REQUIRE n.topic_id IS UNIQUE",
-
         "CREATE CONSTRAINT question_unique IF NOT EXISTS FOR (n:Question) REQUIRE n.question_id IS UNIQUE",
-
         "CREATE CONSTRAINT option_unique IF NOT EXISTS FOR (n:Option) REQUIRE n.option_id IS UNIQUE",
-
         "CREATE CONSTRAINT question_type_unique IF NOT EXISTS FOR (n:QuestionType) REQUIRE n.question_type_id IS UNIQUE"
     ]
 
@@ -158,7 +153,7 @@ def create_constraints(session):
 
 
 # ============================================================
-# FETCH
+# INCREMENTAL FETCH
 # ============================================================
 
 
@@ -168,7 +163,16 @@ def fetch_incremental(cursor, pg_conn, table_name):
     query = f"""
         SELECT *
         FROM {table_name}
-        WHERE created_at >= %s
+        WHERE GREATEST(
+            COALESCE(created_at, '2000-01-01'),
+            COALESCE(updated_at, '2000-01-01'),
+            COALESCE(deleted_at, '2000-01-01')
+        ) >= %s
+        ORDER BY GREATEST(
+            COALESCE(created_at, '2000-01-01'),
+            COALESCE(updated_at, '2000-01-01'),
+            COALESCE(deleted_at, '2000-01-01')
+        ) ASC
     """
 
     try:
@@ -190,7 +194,32 @@ def fetch_incremental(cursor, pg_conn, table_name):
 
         rows = cursor.fetchall()
 
-    return [normalize_row(r) for r in rows]
+    normalized_rows = [normalize_row(r) for r in rows]
+
+    latest_timestamp = checkpoint
+
+    if rows:
+
+        latest_values = []
+
+        for row in rows:
+
+            timestamps = []
+
+            for col in ["created_at", "updated_at", "deleted_at"]:
+
+                value = row.get(col)
+
+                if value:
+                    timestamps.append(value)
+
+            if timestamps:
+                latest_values.append(max(timestamps))
+
+        if latest_values:
+            latest_timestamp = max(latest_values).isoformat()
+
+    return normalized_rows, latest_timestamp
 
 
 # ============================================================
@@ -203,10 +232,12 @@ def execute_with_retry(session, query, rows, table_name):
 
         try:
 
-            session.run(
-                query,
-                rows=rows,
-                graph_version=GRAPH_VERSION
+            session.execute_write(
+                lambda tx: tx.run(
+                    query,
+                    rows=rows,
+                    graph_version=GRAPH_VERSION
+                )
             )
 
             return True
@@ -250,7 +281,10 @@ SET
     s.code = row.code,
     s.name = row.name,
     s.description = row.description,
+    s.deleted = CASE WHEN row.deleted_at IS NOT NULL THEN true ELSE false END,
     s.created_at = row.created_at,
+    s.updated_at = row.updated_at,
+    s.deleted_at = row.deleted_at,
     s.graph_version = $graph_version
 """
 
@@ -263,7 +297,10 @@ SET
     t.name = row.name,
     t.description = row.description,
     t.bloom_level = row.bloom_level,
+    t.deleted = CASE WHEN row.deleted_at IS NOT NULL THEN true ELSE false END,
     t.created_at = row.created_at,
+    t.updated_at = row.updated_at,
+    t.deleted_at = row.deleted_at,
     t.graph_version = $graph_version
 MERGE (t)-[:BELONGS_TO]->(s)
 """
@@ -274,6 +311,10 @@ MERGE (qt:QuestionType {question_type_id: row.question_type_id})
 SET
     qt.name = row.name,
     qt.description = row.description,
+    qt.deleted = CASE WHEN row.deleted_at IS NOT NULL THEN true ELSE false END,
+    qt.created_at = row.created_at,
+    qt.updated_at = row.updated_at,
+    qt.deleted_at = row.deleted_at,
     qt.graph_version = $graph_version
 """
 
@@ -292,7 +333,10 @@ SET
     q.source = row.source,
     q.source_reference = row.source_reference,
     q.is_active = row.is_active,
+    q.deleted = CASE WHEN row.deleted_at IS NOT NULL THEN true ELSE false END,
     q.created_at = row.created_at,
+    q.updated_at = row.updated_at,
+    q.deleted_at = row.deleted_at,
     q.graph_version = $graph_version
 MERGE (q)-[:BELONGS_TO]->(s)
 WITH q, row
@@ -314,6 +358,10 @@ SET
     o.option_label = row.option_label,
     o.option_text = row.option_text,
     o.is_correct = row.is_correct,
+    o.deleted = CASE WHEN row.deleted_at IS NOT NULL THEN true ELSE false END,
+    o.created_at = row.created_at,
+    o.updated_at = row.updated_at,
+    o.deleted_at = row.deleted_at,
     o.graph_version = $graph_version
 MERGE (q)-[:HAS_OPTION]->(o)
 """
@@ -325,6 +373,10 @@ MATCH (t:Topic {topic_id: row.topic_id})
 MERGE (q)-[r:RELATED_TO]->(t)
 SET
     r.relevance_weight = row.relevance_weight,
+    r.deleted = CASE WHEN row.deleted_at IS NOT NULL THEN true ELSE false END,
+    r.created_at = row.created_at,
+    r.updated_at = row.updated_at,
+    r.deleted_at = row.deleted_at,
     r.graph_version = $graph_version
 """
 
@@ -367,7 +419,7 @@ def main():
 
                 logging.info(f"Sync → {table_name}")
 
-                rows = fetch_incremental(
+                rows, latest_timestamp = fetch_incremental(
                     cursor,
                     pg_conn,
                     table_name
@@ -399,7 +451,10 @@ def main():
                             f"{table_name} batch={batch_idx} rows={len(batch)} duration={batch_duration}s"
                         )
 
-                update_checkpoint(table_name)
+                update_checkpoint(
+                    table_name,
+                    latest_timestamp
+                )
 
                 table_duration = round(time.time() - table_start, 2)
 

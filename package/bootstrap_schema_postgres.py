@@ -43,7 +43,9 @@ CREATE TABLE IF NOT EXISTS subjects (
     code        VARCHAR(50) NOT NULL UNIQUE,
     name        VARCHAR(255) NOT NULL UNIQUE,
     description TEXT,
-    created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+	updated_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+	deleted_at  TIMESTAMP NULL
 );
 
 
@@ -56,6 +58,8 @@ CREATE TABLE IF NOT EXISTS topics (
     description TEXT,
     bloom_level VARCHAR(30),
     created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+	updated_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+	deleted_at  TIMESTAMP NULL,
     UNIQUE(subject_id, code),
     UNIQUE(subject_id, name)
 );
@@ -66,7 +70,9 @@ CREATE TABLE IF NOT EXISTS question_types (
     question_type_id BIGSERIAL PRIMARY KEY,
     name             VARCHAR(100) NOT NULL UNIQUE,
     description      TEXT,
-	created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+	created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+	updated_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+	deleted_at  TIMESTAMP NULL
 );
 
 
@@ -87,6 +93,8 @@ CREATE TABLE IF NOT EXISTS questions (
 	source_reference  VARCHAR(200),
     is_active        BOOLEAN DEFAULT TRUE,
     created_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+	updated_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+	deleted_at       TIMESTAMP NULL,
     UNIQUE(subject_id, content)
 );
 
@@ -98,7 +106,9 @@ CREATE TABLE IF NOT EXISTS question_options (
     option_label CHAR(1) NOT NULL CHECK (option_label IN ('A','B','C','D')),
     option_text  TEXT NOT NULL,
     is_correct   BOOLEAN DEFAULT FALSE,
-	created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+	created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+	updated_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+	deleted_at   TIMESTAMP NULL,
     UNIQUE(question_id, option_label)
 );
 
@@ -109,7 +119,9 @@ CREATE TABLE IF NOT EXISTS question_knowledge_links (
 	question_id      BIGINT NOT NULL REFERENCES questions(question_id) ON DELETE CASCADE,
     topic_id         BIGINT NOT NULL REFERENCES topics(topic_id) ON DELETE CASCADE,
     relevance_weight NUMERIC(3,2) DEFAULT 1.0,
-	created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+	created_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+	updated_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+	deleted_at       TIMESTAMP NULL,
     UNIQUE(question_id, topic_id)
 );
 
@@ -121,7 +133,9 @@ CREATE TABLE IF NOT EXISTS students (
     full_name    VARCHAR(255),
     class_name   VARCHAR(100),
     email        VARCHAR(255) UNIQUE,
-    created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+	updated_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+	deleted_at   TIMESTAMP NULL
 );
 
 
@@ -146,7 +160,9 @@ CREATE TABLE IF NOT EXISTS exam_blueprints (
     name            VARCHAR(255) NOT NULL,
     total_questions INT NOT NULL,
     target_difficulty NUMERIC(3,2),
-	created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+	created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+	updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+	deleted_at      TIMESTAMP NULL,
     UNIQUE(subject_id, name)
 );
 
@@ -159,7 +175,9 @@ CREATE TABLE IF NOT EXISTS exams (
     blueprint_id    BIGINT,
     requested_count INT NOT NULL,
     requested_diff  NUMERIC(3,2),
-	created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+	created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+	updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+	deleted_at      TIMESTAMP NULL
 );
 
 
@@ -169,7 +187,9 @@ CREATE TABLE IF NOT EXISTS exam_questions (
     exam_id          BIGINT NOT NULL REFERENCES exams(exam_id) ON DELETE CASCADE,
     question_id      BIGINT NOT NULL REFERENCES questions(question_id),
     display_order    INT NOT NULL,
-	created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+	created_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+	updated_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+	deleted_at       TIMESTAMP NULL,
     UNIQUE(exam_id, question_id),
     UNIQUE(exam_id, display_order)
 );
@@ -185,7 +205,9 @@ CREATE TABLE IF NOT EXISTS attempts (
     total_score  NUMERIC(5,2),
     max_score    NUMERIC(5,2),
     feedback     TEXT,
-	created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+	created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+	updated_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+	deleted_at   TIMESTAMP NULL,
     UNIQUE(exam_id, student_id)
 );
 
@@ -193,12 +215,14 @@ CREATE TABLE IF NOT EXISTS attempts (
 -- 13. Table attempt_answers
 CREATE TABLE IF NOT EXISTS attempt_answers (
     attempt_answer_id BIGSERIAL PRIMARY KEY,
-	attempt_id    BIGINT NOT NULL REFERENCES attempts(attempt_id) ON DELETE CASCADE,
+	attempt_id        BIGINT NOT NULL REFERENCES attempts(attempt_id) ON DELETE CASCADE,
     question_id       BIGINT NOT NULL REFERENCES questions(question_id),
     selected_option   CHAR(1),
     is_correct        BOOLEAN,
     time_spent_sec    INT,
-	created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+	created_at        TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+	updated_at        TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+	deleted_at        TIMESTAMP NULL,
     UNIQUE(attempt_id, question_id)
 );
 
@@ -206,12 +230,14 @@ CREATE TABLE IF NOT EXISTS attempt_answers (
 -- 14. Table exam_blueprint_details
 CREATE TABLE IF NOT EXISTS exam_blueprint_details (
     id              BIGSERIAL PRIMARY KEY,
-	blueprint_id  BIGINT NOT NULL REFERENCES exam_blueprints(blueprint_id) ON DELETE CASCADE,
+	blueprint_id    BIGINT NOT NULL REFERENCES exam_blueprints(blueprint_id) ON DELETE CASCADE,
     topic_id        BIGINT NOT NULL REFERENCES topics(topic_id),
     question_count  INT NOT NULL,
     difficulty_min  NUMERIC(3,2),
     difficulty_max  NUMERIC(3,2),
-	created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+	created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+	updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+	deleted_at      TIMESTAMP NULL,
     UNIQUE(blueprint_id, topic_id)
 );
 
@@ -225,30 +251,36 @@ CREATE TABLE IF NOT EXISTS rules (
     action_expr    TEXT NOT NULL,
     priority       INT DEFAULT 1,
     is_active      BOOLEAN DEFAULT TRUE,
-    created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+	updated_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+	deleted_at     TIMESTAMP NULL
 );
 
 
 -- 16. Table rule_topic_mapping
 CREATE TABLE IF NOT EXISTS rule_topic_mapping (
-    id       BIGSERIAL PRIMARY KEY,
-    rule_id  BIGINT NOT NULL REFERENCES rules(rule_id) ON DELETE CASCADE,
-    topic_id BIGINT NOT NULL REFERENCES topics(topic_id) ON DELETE CASCADE,
-	created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    id            BIGSERIAL PRIMARY KEY,
+    rule_id       BIGINT NOT NULL REFERENCES rules(rule_id) ON DELETE CASCADE,
+    topic_id      BIGINT NOT NULL REFERENCES topics(topic_id) ON DELETE CASCADE,
+	created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+	updated_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+	deleted_at    TIMESTAMP NULL,
     UNIQUE(rule_id, topic_id)
 );
 
 
 -- 17. Table llm_generation_logs
 CREATE TABLE IF NOT EXISTS llm_generation_logs (
-    log_id    BIGSERIAL PRIMARY KEY,
-    topic_id  BIGINT REFERENCES topics(topic_id),
-    prompt_text TEXT,
-    raw_response TEXT,
-    parsed_json JSONB,
-    created_question_id BIGINT REFERENCES questions(question_id),
-    status VARCHAR(30),
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    log_id               BIGSERIAL PRIMARY KEY,
+    topic_id             BIGINT REFERENCES topics(topic_id),
+    prompt_text          TEXT,
+    raw_response         TEXT,
+    parsed_json          JSONB,
+    created_question_id  BIGINT REFERENCES questions(question_id),
+    status               VARCHAR(30),
+    created_at           TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+	updated_at           TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+	deleted_at           TIMESTAMP NULL
 );
 
 
@@ -261,29 +293,35 @@ CREATE TABLE IF NOT EXISTS difficulty_assessments (
     confidence    NUMERIC(3,2),
     note          TEXT,
     created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+	updated_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+	deleted_at    TIMESTAMP NULL,
     UNIQUE(question_id, created_at, assessed_by)
 );
 
 
 -- 19. Table sync_metadata
 CREATE TABLE IF NOT EXISTS sync_metadata (
-	sync_name TEXT PRIMARY KEY,
-	last_sync TIMESTAMP,
-	created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+	sync_name   TEXT PRIMARY KEY,
+	last_sync   TIMESTAMP,
+	created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+	updated_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+	deleted_at  TIMESTAMP NULL
 );
 
 
 -- 20. Table sync_logs
 CREATE TABLE IF NOT EXISTS sync_logs (
-	id SERIAL PRIMARY KEY,
-	sync_name TEXT,
-	table_name TEXT,
-	synced_rows INTEGER,
-	status TEXT,
-	started_at TIMESTAMP,
-	completed_at TIMESTAMP,
+	id SERIAL     PRIMARY KEY,
+	sync_name     TEXT,
+	table_name    TEXT,
+	synced_rows   INTEGER,
+	status        TEXT,
+	started_at    TIMESTAMP,
+	completed_at  TIMESTAMP,
 	error_message TEXT,
-	created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+	created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+	updated_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+	deleted_at    TIMESTAMP NULL
 );
 """
 
