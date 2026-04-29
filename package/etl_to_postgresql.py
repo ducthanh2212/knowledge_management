@@ -1,6 +1,6 @@
 """
 ETL Script: Excel → PostgreSQL
-Đổ 258 câu hỏi vào 5 bảng: subjects, topics, questions, question_options, question_knowledge_links
+Đổ 258 câu hỏi vào 6 bảng: subjects, topics, question_types, questions, question_options, question_knowledge_links
 
 Author: Member 1 - KBS Adaptive Learning System
 Date: 2026-04-25
