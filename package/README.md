@@ -1,296 +1,304 @@
-# README.md
+# Knowledge Management System — PostgreSQL + Neo4j ETL Project
 
-# Hybrid ETL Pipeline
+## Overview
 
-Pipeline hiện tại:
+This project builds a lightweight Knowledge Management System pipeline using:
 
-```text
-Excel
-  ↓
-etl_to_postgresql.py
-  ↓
-PostgreSQL
-  ↓
-postgres_to_neo4j.py
-  ↓
-Neo4j Knowledge Graph
-```
+- Excel as the raw source
+- PostgreSQL as the structured database
+- Neo4j as the knowledge graph
 
-Flow mới đã tách rõ:
+The project is designed to:
 
-1. ETL dữ liệu từ Excel → PostgreSQL
-2. Sync dữ liệu PostgreSQL → Neo4j
+- load exam/question data into PostgreSQL
+- normalize relational data
+- synchronize data into Neo4j
+- build semantic relationships for knowledge exploration
 
 ---
 
-# 1. Mục tiêu
-
-Project này dùng mô hình Hybrid Database:
-
-- PostgreSQL = Operational Database
-- Neo4j = Knowledge Graph
-
-Dữ liệu được ingest theo pipeline:
+# Project Structure
 
 ```text
-Excel
-   ↓
-PostgreSQL
-   ↓
-Neo4j
-```
-
----
-
-# 2. Cấu trúc thư mục
-
-```text
-source/package/
+project/
 │
+├── bootstrap_schema_postgres.py
 ├── docker-compose.yml
-├── requirements.txt
 ├── etl_to_postgresql.py
 ├── postgres_to_neo4j.py
-├── bootstrap_schema_postgres.py
-├── test_connections.py
 ├── questions_week3_fixed_complete.xlsx
-├── README.md
-└── Câu lệnh tạo bảng SQL.sql
+├── requirements.txt
+├── test_connections.py
+└── README.md
 ```
 
 ---
 
-# 3. Requirements
+# File Descriptions
 
-## Software
+## bootstrap_schema_postgres.py
 
-- Docker Desktop
-- Python 3.10+
-- PostgreSQL
-- Neo4j
+Creates PostgreSQL schema automatically.
+
+Purpose:
+
+- create database tables
+- initialize constraints
+- prepare schema before ETL
+
+Run first before loading data.
 
 ---
 
-# 4. Setup môi trường
+## docker-compose.yml
 
-## 4.1 Tạo virtual environment
+Starts local database services.
 
-```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
+Typically includes:
+
+- PostgreSQL container
+- Neo4j container
+
+Run:
+
+```bash
+docker-compose up -d
+```
+
+This launches:
+
+- PostgreSQL database
+- Neo4j graph database
+
+---
+
+## etl_to_postgresql.py
+
+Loads Excel data into PostgreSQL.
+
+Flow:
+
+```text
+Excel
+  ↓
+Data Cleaning
+  ↓
+Normalization
+  ↓
+PostgreSQL Insert
+```
+
+Responsibilities:
+
+- read Excel file
+- validate records
+- clean data
+- insert relational records
+
+---
+
+## postgres_to_neo4j.py
+
+Synchronizes PostgreSQL data into Neo4j.
+
+Flow:
+
+```text
+PostgreSQL
+  ↓
+Incremental Sync
+  ↓
+Neo4j Graph
+```
+
+Responsibilities:
+
+- fetch PostgreSQL rows
+- incremental sync
+- create Neo4j nodes
+- create Neo4j relationships
+- track sync checkpoints
+
+---
+
+## questions_week3_fixed_complete.xlsx
+
+Raw source data.
+
+Contains:
+
+- subjects
+- topics
+- questions
+- answer options
+- knowledge relationships
+
+Used by:
+
+```text
+etl_to_postgresql.py
 ```
 
 ---
 
-## 4.2 Install dependencies
+## requirements.txt
 
-```powershell
+Python dependencies.
+
+Install packages:
+
+```bash
 pip install -r requirements.txt
 ```
 
 ---
 
-# 5. Start Databases
+## test_connections.py
 
-## 5.1 Start Docker
+Checks database connectivity.
 
-```powershell
-docker compose up -d
-```
+Purpose:
 
----
+- test PostgreSQL connection
+- test Neo4j connection
+- verify credentials
 
-## 5.2 Verify containers
-
-```powershell
-docker ps
-```
-
-Expected:
-
-- PostgreSQL running on port 5432
-- Neo4j running on port 7687
+Run before ETL or sync.
 
 ---
 
-# 6. Database Configuration
-
-## PostgreSQL
+# System Flow
 
 ```text
-Host: localhost
-Port: 5432
-Database: kbs_adaptive_exam
-User: kbs_user
-Password: kbs_password
+questions_week3_fixed_complete.xlsx
+                ↓
+        etl_to_postgresql.py
+                ↓
+            PostgreSQL
+                ↓
+         postgres_to_neo4j.py
+                ↓
+               Neo4j
 ```
 
 ---
 
-## Neo4j
+# Setup Guide
 
-```text
-Browser: http://localhost:7474
-Bolt URI: bolt://localhost:7687
-User: neo4j
-Password: 12345678
+## Step 1 — Start Services
+
+Run Docker containers:
+
+```bash
+docker-compose up -d
 ```
 
 ---
 
-# 7. Test Connection
+## Step 2 — Install Dependencies
 
-Chạy:
+```bash
+pip install -r requirements.txt
+```
 
-```powershell
+---
+
+## Step 3 — Test Database Connections
+
+```bash
 python test_connections.py
 ```
 
 Expected:
 
 ```text
-✓ PostgreSQL connected
-✓ Neo4j connected
-✓ Excel loaded
+PostgreSQL Connected
+Neo4j Connected
 ```
+
+This step verifies:
+
+- PostgreSQL credentials
+- Neo4j credentials
+- container availability
+- network connectivity
 
 ---
 
-# 8. Tạo Schema PostgreSQL
+## Step 4 — Create PostgreSQL Schema
 
-Nếu database trống:
-
-```powershell
+```bash
 python bootstrap_schema_postgres.py
 ```
 
-Hoặc chạy SQL trực tiếp:
-
-```powershell
-docker exec -it postgres-kbs psql -U kbs_user -d kbs_adaptive_exam
-```
-
-Sau đó chạy file:
-
-```text
-Câu lệnh tạo bảng SQL.sql
-```
+This creates required tables.
 
 ---
 
-# 9. ETL Excel → PostgreSQL
+## Step 5 — Load Excel Into PostgreSQL
 
-## Run
-
-```powershell
+```bash
 python etl_to_postgresql.py
 ```
 
----
-
-## Flow
-
-```text
-Excel
- ↓
-Normalize
- ↓
-Subjects
-Topics
-QuestionTypes
-Questions
-QuestionOptions
-QuestionKnowledgeLinks
- ↓
-PostgreSQL
-```
+This loads Excel data into PostgreSQL.
 
 ---
 
-## PostgreSQL Tables
+## Step 6 — Sync PostgreSQL → Neo4j
 
-Tables được insert:
-
-- subjects
-- topics
-- question_types
-- questions
-- question_options
-- question_knowledge_links
-
----
-
-## Verify PostgreSQL
-
-```sql
-SELECT 'subjects' AS table_name, COUNT(*) FROM subjects
-UNION ALL
-SELECT 'topics', COUNT(*) FROM topics
-UNION ALL
-SELECT 'question_types', COUNT(*) FROM question_types
-UNION ALL
-SELECT 'questions', COUNT(*) FROM questions
-UNION ALL
-SELECT 'question_options', COUNT(*) FROM question_options
-UNION ALL
-SELECT 'question_knowledge_links', COUNT(*) FROM question_knowledge_links;
-```
-
----
-
-# 10. Sync PostgreSQL → Neo4j
-
-## Run
-
-```powershell
+```bash
 python postgres_to_neo4j.py
 ```
 
+This creates graph data.
+
 ---
 
-## Flow
+# Database Architecture
+
+## PostgreSQL Role
+
+PostgreSQL stores:
+
+- normalized tables
+- transactional records
+- ETL output
+
+Acts as:
 
 ```text
-PostgreSQL
-    ↓
-Extract Tables
-    ↓
-Normalize Decimal/Datetime
-    ↓
-Neo4j MERGE
-    ↓
-Knowledge Graph
+source of truth
 ```
 
 ---
 
-## Sync Order
+## Neo4j Role
 
-Script sẽ sync theo thứ tự:
+Neo4j stores:
+
+- graph relationships
+- semantic knowledge connections
+- traversal-friendly data
+
+Acts as:
 
 ```text
-1. Subjects
-2. Topics
-3. QuestionTypes
-4. Questions
-5. Options
-6. Knowledge Links
+knowledge graph layer
 ```
 
 ---
 
-# 11. Neo4j Graph Model
+# Neo4j Graph Structure
 
 ## Nodes
 
 ```text
-(:Subject)
-(:Topic)
-(:Question)
-(:Option)
-(:QuestionType)
-(:Difficulty)
-(:BloomLevel)
+Subject
+Topic
+Question
+Option
+QuestionType
 ```
 
 ---
@@ -302,217 +310,131 @@ Script sẽ sync theo thứ tự:
 
 (:Question)-[:BELONGS_TO]->(:Subject)
 
+(:Question)-[:PRIMARY_TOPIC]->(:Topic)
+
 (:Question)-[:HAS_OPTION]->(:Option)
 
 (:Question)-[:HAS_TYPE]->(:QuestionType)
 
-(:Question)-[:HAS_DIFFICULTY]->(:Difficulty)
-
-(:Question)-[:HAS_BLOOM_LEVEL]->(:BloomLevel)
-
 (:Question)-[:RELATED_TO]->(:Topic)
-
-(:Question)-[:COVERS_TOPIC]->(:Topic)
 ```
 
 ---
 
-# 12. Verify Neo4j
+# Incremental Sync
 
-Mở:
+The sync engine supports:
 
 ```text
-http://localhost:7474
+created_at
+updated_at
+deleted_at
 ```
 
-Login:
+Incremental logic:
+
+```sql
+GREATEST(
+    created_at,
+    updated_at,
+    deleted_at
+)
+```
+
+Benefits:
+
+- insert tracking
+- update tracking
+- delete tracking
+
+---
+
+# Common Commands
+
+## Start Services
+
+```bash
+docker-compose up -d
+```
+
+---
+
+## Stop Services
+
+```bash
+docker-compose down
+```
+
+---
+
+## Run ETL
+
+```bash
+python etl_to_postgresql.py
+```
+
+---
+
+## Run Graph Sync
+
+```bash
+python postgres_to_neo4j.py
+```
+
+---
+
+## Test Connections
+
+```bash
+python test_connections.py
+```
+
+---
+
+# Expected Workflow
 
 ```text
-neo4j / 12345678
+1. Start Docker
+2. Create schema
+3. Test connection
+4. Load Excel
+5. Sync graph
 ```
 
 ---
 
-## Count Nodes
-
-```cypher
-MATCH (n)
-RETURN labels(n)[0] AS NodeType, count(n) AS Count
-ORDER BY NodeType;
-```
-
----
-
-## Count Relationships
-
-```cypher
-MATCH ()-[r]->()
-RETURN type(r) AS RelationshipType, count(r) AS Count
-ORDER BY RelationshipType;
-```
-
----
-
-## Sample Queries
-
-### Questions of a Topic
-
-```cypher
-MATCH (q:Question)-[:RELATED_TO]->(t:Topic {name:'Functions'})
-RETURN q.question_id, q.content
-LIMIT 10;
-```
-
----
-
-### Question Difficulty
-
-```cypher
-MATCH (q:Question)-[:HAS_DIFFICULTY]->(d:Difficulty)
-RETURN d.level, count(q)
-ORDER BY d.level;
-```
-
----
-
-### Topic Coverage
-
-```cypher
-MATCH (q:Question)-[:COVERS_TOPIC]->(t:Topic)
-RETURN t.name, count(q)
-ORDER BY count(q) DESC;
-```
-
----
-
-# 13. Expected Results
-
-## PostgreSQL
+# Recommended Python Version
 
 ```text
-subjects = 2
-topics = 22
-questions = 258
-question_options = 1032
-question_knowledge_links = 257
+Python 3.10+
 ```
 
 ---
 
-## Neo4j
+# Dependencies
 
-Expected minimum:
+Typical dependencies:
 
-```text
-Subject nodes
-Topic nodes
-Question nodes
-Option nodes
-QuestionType nodes
-Difficulty nodes
-BloomLevel nodes
-```
+- psycopg2
+- pandas
+- openpyxl
+- neo4j
+- python-dotenv
 
 ---
 
-# 14. Reset Data
+# Notes
 
-## Reset PostgreSQL
-
-```powershell
-docker compose down -v
-```
-
----
-
-## Reset Neo4j
-
-Trong Neo4j Browser:
-
-```cypher
-MATCH (n)
-DETACH DELETE n;
-```
+- PostgreSQL stores structured data
+- Neo4j stores graph data
+- Excel is used only as ingestion source
+- Incremental sync avoids full reload
 
 ---
 
-# 15. Troubleshooting
+# Author
 
-## PostgreSQL Connection Fail
+Knowledge Management System
 
-Check:
-
-```powershell
-docker ps
-```
-
----
-
-## Neo4j Connection Fail
-
-Check:
-
-```powershell
-docker logs neo4j-kbs --tail 100
-```
-
----
-
-## Decimal Error
-
-Nếu gặp:
-
-```text
-Decimal not supported
-```
-
-Script đã có:
-
-```python
-normalize_row()
-```
-
-để auto convert.
-
----
-
-# 16. Pipeline Summary
-
-```text
-Excel
- ↓
-etl_to_postgresql.py
- ↓
-PostgreSQL
- ↓
-postgres_to_neo4j.py
- ↓
-Neo4j Knowledge Graph
-```
-
----
-
-# 17. Architecture
-
-```text
-                ┌─────────────┐
-                │ Excel Input │
-                └──────┬──────┘
-                       ↓
-         ┌────────────────────────┐
-         │ etl_to_postgresql.py   │
-         └──────────┬─────────────┘
-                    ↓
-             ┌──────────────┐
-             │ PostgreSQL   │
-             └──────┬───────┘
-                    ↓
-         ┌────────────────────────┐
-         │ postgres_to_neo4j.py   │
-         └──────────┬─────────────┘
-                    ↓
-              ┌────────────┐
-              │ Neo4j KG   │
-              └────────────┘
-```
+PostgreSQL → Neo4j ETL + Graph Sync Pipeline
 
