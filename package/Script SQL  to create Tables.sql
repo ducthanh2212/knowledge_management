@@ -16,6 +16,9 @@ DROP TABLE IF EXISTS llm_generation_logs CASCADE;
 DROP TABLE IF EXISTS difficulty_assessments CASCADE;
 DROP TABLE IF EXISTS topics CASCADE;
 DROP TABLE IF EXISTS subjects CASCADE;
+DROP TABLE IF EXISTS sync_metadata CASCADE;
+DROP TABLE IF EXISTS sync_logs CASCADE;
+
 
 
 -- 1. Table subjects 
@@ -46,7 +49,8 @@ CREATE TABLE IF NOT EXISTS topics (
 CREATE TABLE IF NOT EXISTS question_types (
     question_type_id BIGSERIAL PRIMARY KEY,
     name             VARCHAR(100) NOT NULL UNIQUE,
-    description      TEXT
+    description      TEXT,
+	created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 
@@ -78,6 +82,7 @@ CREATE TABLE IF NOT EXISTS question_options (
     option_label CHAR(1) NOT NULL CHECK (option_label IN ('A','B','C','D')),
     option_text  TEXT NOT NULL,
     is_correct   BOOLEAN DEFAULT FALSE,
+	created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(question_id, option_label)
 );
 
@@ -88,6 +93,7 @@ CREATE TABLE IF NOT EXISTS question_knowledge_links (
 	question_id      BIGINT NOT NULL REFERENCES questions(question_id) ON DELETE CASCADE,
     topic_id         BIGINT NOT NULL REFERENCES topics(topic_id) ON DELETE CASCADE,
     relevance_weight NUMERIC(3,2) DEFAULT 1.0,
+	created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(question_id, topic_id)
 );
 
@@ -111,6 +117,7 @@ CREATE TABLE IF NOT EXISTS student_topic_mastery (
     mastery_score  NUMERIC(4,3) CHECK (mastery_score BETWEEN 0 AND 1),
     question_count INT DEFAULT 0,
     correct_count  INT DEFAULT 0,
+	created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     last_updated   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(student_id, topic_id)
 );
@@ -123,6 +130,7 @@ CREATE TABLE IF NOT EXISTS exam_blueprints (
     name            VARCHAR(255) NOT NULL,
     total_questions INT NOT NULL,
     target_difficulty NUMERIC(3,2),
+	created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(subject_id, name)
 );
 
@@ -135,7 +143,7 @@ CREATE TABLE IF NOT EXISTS exams (
     blueprint_id    BIGINT,
     requested_count INT NOT NULL,
     requested_diff  NUMERIC(3,2),
-    generated_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+	created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 
@@ -145,6 +153,7 @@ CREATE TABLE IF NOT EXISTS exam_questions (
     exam_id          BIGINT NOT NULL REFERENCES exams(exam_id) ON DELETE CASCADE,
     question_id      BIGINT NOT NULL REFERENCES questions(question_id),
     display_order    INT NOT NULL,
+	created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(exam_id, question_id),
     UNIQUE(exam_id, display_order)
 );
@@ -160,6 +169,7 @@ CREATE TABLE IF NOT EXISTS attempts (
     total_score  NUMERIC(5,2),
     max_score    NUMERIC(5,2),
     feedback     TEXT,
+	created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(exam_id, student_id)
 );
 
@@ -172,6 +182,7 @@ CREATE TABLE IF NOT EXISTS attempt_answers (
     selected_option   CHAR(1),
     is_correct        BOOLEAN,
     time_spent_sec    INT,
+	created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(attempt_id, question_id)
 );
 
@@ -184,6 +195,7 @@ CREATE TABLE IF NOT EXISTS exam_blueprint_details (
     question_count  INT NOT NULL,
     difficulty_min  NUMERIC(3,2),
     difficulty_max  NUMERIC(3,2),
+	created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(blueprint_id, topic_id)
 );
 
@@ -206,6 +218,7 @@ CREATE TABLE IF NOT EXISTS rule_topic_mapping (
     id       BIGSERIAL PRIMARY KEY,
     rule_id  BIGINT NOT NULL REFERENCES rules(rule_id) ON DELETE CASCADE,
     topic_id BIGINT NOT NULL REFERENCES topics(topic_id) ON DELETE CASCADE,
+	created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(rule_id, topic_id)
 );
 
@@ -236,3 +249,23 @@ CREATE TABLE IF NOT EXISTS difficulty_assessments (
 );
 
 
+-- 19. Table sync_metadata
+CREATE TABLE IF NOT EXISTS sync_metadata (
+	sync_name TEXT PRIMARY KEY,
+	last_sync TIMESTAMP,
+	created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+
+-- 20. Table sync_logs
+CREATE TABLE IF NOT EXISTS sync_logs (
+	id SERIAL PRIMARY KEY,
+	sync_name TEXT,
+	table_name TEXT,
+	synced_rows INTEGER,
+	status TEXT,
+	started_at TIMESTAMP,
+	completed_at TIMESTAMP,
+	error_message TEXT,
+	created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
