@@ -5,14 +5,9 @@ import pandas as pd
 import numpy as np
 from neo4j import GraphDatabase
 
-# =====================================================
-# APP INIT
-# =====================================================
 app = FastAPI()
 
-# =====================================================
-# CONFIG
-# =====================================================
+# ================= CONFIG =================
 DB_CONFIG = {
     "host": "localhost",
     "port": 5432,
@@ -25,18 +20,13 @@ NEO4J_URI = "bolt://localhost:7687"
 NEO4J_USER = "neo4j"
 NEO4J_PASSWORD = "12345678"
 
-neo_driver = GraphDatabase.driver(
-    NEO4J_URI,
-    auth=(NEO4J_USER, NEO4J_PASSWORD)
-)
+neo_driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD))
 
 
 def get_conn():
     return psycopg2.connect(**DB_CONFIG)
 
-# =====================================================
-# CAT CORE (IRT 1PL)
-# =====================================================
+# ================= IRT =================
 
 def prob_correct(theta, b):
     return 1 / (1 + np.exp(-(theta - b)))
@@ -46,130 +36,104 @@ def update_theta(theta, b, result):
     p = prob_correct(theta, b)
     return theta + 0.2 * (result - p)
 
+# ================= RULE ENGINE (CHAINING) =================
 
-def check_convergence(theta_history, threshold=0.01, window=3):
-    if len(theta_history) < window:
-        return False
-    recent = theta_history[-window:]
-    return max(recent) - min(recent) < threshold
-
-# =====================================================
-# RULE ENGINE
-# =====================================================
-
-def evaluate_condition(value, operator, threshold):
-    if operator == ">":
-        return value > threshold
-    elif operator == "<":
-        return value < threshold
-    elif operator == ">=":
-        return value >= threshold
-    elif operator == "<=":
-        return value <= threshold
-    elif operator == "==":
-        return value == threshold
+def evaluate_condition(val, op, thr):
+    if op == ">": return val > thr
+    if op == "<": return val < thr
+    if op == ">=": return val >= thr
+    if op == "<=": return val <= thr
+    if op == "==": return val == thr
     return False
 
 
-def get_rules_for_topic(topic_id):
+def get_rules(topic_id):
     query = """
-    MATCH (r:Rule)-[:APPLIES_TO]->(t:Topic {topic_id: $topic_id})
-    RETURN r
+    MATCH (r:Rule)-[:APPLIES_TO]->(t:Topic {topic_id:$tid})
+    RETURN r ORDER BY r.priority DESC
     """
-
-    with neo_driver.session() as session:
-        result = session.run(query, topic_id=topic_id)
-        rules = []
-        for record in result:
-            r = record["r"]
-            rules.append({
-                "operator": r["operator"],
-                "threshold": r["threshold"],
-                "result_required": r["result_required"],
-                "weight": r["weight"]
-            })
-        return rules
+    with neo_driver.session() as s:
+        res = s.run(query, tid=topic_id)
+        return [dict(r["r"]) for r in res]
 
 
-def apply_rules(rules, difficulty, is_correct):
+def forward_chain(rules, difficulty, is_correct):
+    facts = {"difficulty": difficulty, "correct": is_correct}
     delta = 0
-    for rule in rules:
-        cond_ok = evaluate_condition(
-            difficulty,
-            rule["operator"],
-            rule["threshold"]
-        )
-        result_ok = (is_correct == rule["result_required"])
-        if cond_ok and result_ok:
-            delta += rule["weight"]
+
+    for r in rules:
+        cond = evaluate_condition(facts["difficulty"], r["operator"], r["threshold"])
+        res = (facts["correct"] == r["result_required"])
+
+        if cond and res:
+            delta += r["weight"]
+
+            # chaining effect
+            facts["difficulty"] += r.get("difficulty_delta", 0)
+
     return delta
 
-# =====================================================
-# NEO4J FUNCTIONS
-# =====================================================
+# ================= NEO4J =================
 
 def init_mastery(student_id):
-    query = """
-    MATCH (t:Topic)
-    MERGE (s:Student {student_id: $student_id})
-    MERGE (s)-[r:HAS_MASTERY]->(t)
-    ON CREATE SET r.mastery = 0.5
-    """
-    with neo_driver.session() as session:
-        session.run(query, student_id=student_id)
+    with neo_driver.session() as s:
+        s.run("""
+        MATCH (t:Topic)
+        MERGE (s:Student {student_id:$sid})
+        MERGE (s)-[r:HAS_MASTERY]->(t)
+        ON CREATE SET r.mastery = 0.5
+        """, sid=student_id)
 
 
-def get_weak_topics(student_id, limit=3):
-    query = """
-    MATCH (s:Student {student_id: $student_id})
-          -[r:HAS_MASTERY]->(t:Topic)
-    RETURN t.topic_id AS topic_id, r.mastery AS mastery
-    ORDER BY r.mastery ASC
-    LIMIT $limit
-    """
-    with neo_driver.session() as session:
-        result = session.run(query, student_id=student_id, limit=limit)
-        return [r["topic_id"] for r in result]
+def get_weak_topics(student_id):
+    with neo_driver.session() as s:
+        res = s.run("""
+        MATCH (s:Student {student_id:$sid})-[r:HAS_MASTERY]->(t)
+        RETURN t.topic_id AS tid, r.mastery AS m
+        ORDER BY m ASC LIMIT 3
+        """, sid=student_id)
+        return [r["tid"] for r in res]
 
 
-def get_questions_from_topics(topic_ids):
-    query = """
-    MATCH (q:Question)-[rel:RELATED_TO]->(t:Topic)
-    WHERE t.topic_id IN $topic_ids
-    RETURN q.question_id AS qid,
-           rel.relevance_weight AS weight
-    ORDER BY weight DESC
-    """
-    with neo_driver.session() as session:
-        result = session.run(query, topic_ids=topic_ids)
-        return [(r["qid"], r["weight"]) for r in result]
+def get_learning_path(topic_id):
+    with neo_driver.session() as s:
+        res = s.run("""
+        MATCH (t:Topic {topic_id:$tid})<-[:PREREQUISITE_OF*]-(pre)
+        RETURN pre.topic_id AS tid
+        """, tid=topic_id)
+        return [r["tid"] for r in res]
 
 
-def update_mastery_rule_based(student_id, question_id, is_correct, difficulty):
-    query = """
-    MATCH (q:Question {question_id: $qid})-[rel:RELATED_TO]->(t:Topic)
-    RETURN t.topic_id AS topic_id, rel.relevance_weight AS w
-    """
+def update_mastery(student_id, question_id, is_correct, difficulty):
+    with neo_driver.session() as s:
+        res = s.run("""
+        MATCH (q:Question {question_id:$qid})-[rel:RELATED_TO]->(t)
+        RETURN t.topic_id AS tid, rel.relevance_weight AS w
+        """, qid=question_id)
 
-    with neo_driver.session() as session:
-        result = session.run(query, qid=question_id)
+        explanations = []
 
-        for record in result:
-            topic_id = record["topic_id"]
-            weight = record["w"]
+        for r in res:
+            tid = r["tid"]
+            w = r["w"]
 
-            rules = get_rules_for_topic(topic_id)
-            delta = apply_rules(rules, difficulty, int(is_correct))
+            rules = get_rules(tid)
+            delta = forward_chain(rules, difficulty, is_correct)
 
-            session.run("""
-                MATCH (s:Student {student_id: $sid})
-                      -[m:HAS_MASTERY]->(t:Topic {topic_id: $tid})
-                SET m.mastery = m.mastery + $delta * $w
-            """, sid=student_id, tid=topic_id, delta=delta, w=weight)
+            s.run("""
+            MATCH (s:Student {student_id:$sid})-[m:HAS_MASTERY]->(t:Topic {topic_id:$tid})
+            SET m.mastery = m.mastery + $d * $w
+            """, sid=student_id, tid=tid, d=delta, w=w)
 
-# =====================================================
-# REQUEST MODEL
-# =====================================================
+            explanations.append({
+                "topic": tid,
+                "delta": delta,
+                "rules_used": len(rules)
+            })
+
+        return explanations
+
+# ================= MODELS =================
 
 class SubmitAnswer(BaseModel):
     attempt_id: int
@@ -178,204 +142,123 @@ class SubmitAnswer(BaseModel):
     selected_option: str
     time_spent_sec: int
 
-# =====================================================
-# START CAT
-# =====================================================
+# ================= START =================
 
 @app.post("/cat/start/{student_id}/{subject_id}")
-def start_cat(student_id: int, subject_id: int):
+def start(student_id: int, subject_id: int):
     conn = get_conn()
     cur = conn.cursor()
 
-    try:
-        init_mastery(student_id)
+    init_mastery(student_id)
 
-        cur.execute("SELECT ability FROM students WHERE id=%s", (student_id,))
-        theta = cur.fetchone()[0]
+    cur.execute("SELECT ability FROM students WHERE id=%s", (student_id,))
+    theta = cur.fetchone()[0]
 
-        cur.execute("""
-            INSERT INTO attempts (
-                student_id, subject_id,
-                current_theta, last_theta,
-                theta_history, question_count,
-                max_questions, started_at
-            )
-            VALUES (%s, %s, %s, %s, %s, 0, 20, NOW())
-            RETURNING id
-        """, (student_id, subject_id, theta, theta, [theta]))
+    cur.execute("""
+    INSERT INTO attempts(student_id,subject_id,current_theta,last_theta,theta_history)
+    VALUES(%s,%s,%s,%s,%s) RETURNING id
+    """, (student_id, subject_id, theta, theta, [theta]))
 
-        attempt_id = cur.fetchone()[0]
-        conn.commit()
+    aid = cur.fetchone()[0]
+    conn.commit()
+    return {"attempt_id": aid}
 
-        return {"attempt_id": attempt_id, "theta": theta}
+# ================= NEXT =================
 
-    finally:
-        cur.close()
-        conn.close()
-
-# =====================================================
-# NEXT QUESTION
-# =====================================================
-
-@app.get("/cat/next/{attempt_id}")
-def get_next_question(attempt_id: int):
+@app.get("/cat/next/{aid}")
+def next_q(aid: int):
     conn = get_conn()
 
-    try:
-        attempt = pd.read_sql("""
-            SELECT current_theta, subject_id,
-                   student_id, is_finished
-            FROM attempts WHERE id=%s
-        """, conn, params=[attempt_id]).iloc[0]
+    at = pd.read_sql("SELECT * FROM attempts WHERE id=%s", conn, params=[aid]).iloc[0]
 
-        if attempt["is_finished"]:
-            return {"message": "Exam finished"}
+    theta = at["current_theta"]
+    sid = at["student_id"]
 
-        theta = attempt["current_theta"]
-        student_id = attempt["student_id"]
+    topics = get_weak_topics(sid)
 
-        weak_topics = get_weak_topics(student_id)
-        candidates = get_questions_from_topics(weak_topics)
+    # include prerequisite learning path
+    extended = set(topics)
+    for t in topics:
+        extended.update(get_learning_path(t))
 
-        if not candidates:
-            return {"message": "No candidates"}
+    with neo_driver.session() as s:
+        res = s.run("""
+        MATCH (q:Question)-[r:RELATED_TO]->(t)
+        WHERE t.topic_id IN $tids
+        RETURN q.question_id AS qid, r.relevance_weight AS w
+        """, tids=list(extended))
 
-        candidate_ids = [c[0] for c in candidates]
+        candidates = [(r["qid"], r["w"]) for r in res]
 
-        df = pd.read_sql("""
-            SELECT id, difficulty, content
-            FROM questions
-            WHERE id = ANY(%s)
-        """, conn, params=[candidate_ids])
+    ids = [c[0] for c in candidates]
 
-        if df.empty:
-            return {"message": "No questions"}
+    df = pd.read_sql("SELECT id,difficulty,content FROM questions WHERE id=ANY(%s)", conn, params=[ids])
 
-        df["gap"] = abs(df["difficulty"] - theta)
-        weight_map = dict(candidates)
-        df["graph_weight"] = df["id"].map(weight_map)
+    df["gap"] = abs(df["difficulty"] - theta)
+    wm = dict(candidates)
+    df["w"] = df["id"].map(wm)
 
-        df["score"] = 0.7 * df["gap"] + 0.3 * (1 - df["graph_weight"])
+    df["score"] = 0.6*df["gap"] + 0.4*(1-df["w"])
 
-        q = df.sort_values("score").iloc[0]
+    q = df.sort_values("score").iloc[0]
 
-        return {
-            "question_id": int(q["id"]),
-            "difficulty": float(q["difficulty"]),
-            "content": q["content"]
-        }
+    return {"qid": int(q["id"]), "content": q["content"]}
 
-    finally:
-        conn.close()
-
-# =====================================================
-# SUBMIT ANSWER
-# =====================================================
+# ================= ANSWER =================
 
 @app.post("/cat/answer")
-def submit_answer(req: SubmitAnswer):
+def answer(req: SubmitAnswer):
     conn = get_conn()
     cur = conn.cursor()
 
-    try:
-        cur.execute("""
-            SELECT correct_option, difficulty
-            FROM questions WHERE id=%s
-        """, (req.question_id,))
-        correct, difficulty = cur.fetchone()
+    cur.execute("SELECT correct_option,difficulty FROM questions WHERE id=%s", (req.question_id,))
+    correct, diff = cur.fetchone()
 
-        is_correct = (req.selected_option == correct)
+    is_correct = (req.selected_option == correct)
 
-        cur.execute("""
-            SELECT current_theta, theta_history
-            FROM attempts WHERE id=%s
-        """, (req.attempt_id,))
-        theta, history = cur.fetchone()
+    cur.execute("SELECT current_theta,theta_history FROM attempts WHERE id=%s", (req.attempt_id,))
+    theta, hist = cur.fetchone()
 
-        new_theta = update_theta(theta, difficulty, int(is_correct))
-        history.append(new_theta)
+    new_theta = update_theta(theta, diff, int(is_correct))
+    hist.append(new_theta)
 
-        cur.execute("""
-            INSERT INTO attempt_answers (
-                attempt_id, question_id,
-                selected_option, is_correct,
-                time_spent_sec
-            )
-            VALUES (%s, %s, %s, %s, %s)
-        """, (
-            req.attempt_id,
-            req.question_id,
-            req.selected_option,
-            is_correct,
-            req.time_spent_sec
-        ))
+    explanation = update_mastery(req.student_id, req.question_id, is_correct, diff)
 
-        update_mastery_rule_based(
-            student_id=req.student_id,
-            question_id=req.question_id,
-            is_correct=is_correct,
-            difficulty=difficulty
-        )
+    cur.execute("UPDATE attempts SET current_theta=%s,theta_history=%s WHERE id=%s",
+                (new_theta, hist, req.attempt_id))
 
-        finished = check_convergence(history)
+    conn.commit()
 
-        cur.execute("""
-            UPDATE attempts
-            SET current_theta = %s,
-                last_theta = %s,
-                theta_history = %s,
-                question_count = question_count + 1,
-                is_finished = %s
-            WHERE id = %s
-        """, (
-            new_theta,
-            theta,
-            history,
-            finished,
-            req.attempt_id
-        ))
+    return {
+        "correct": is_correct,
+        "theta": new_theta,
+        "explanation": explanation
+    }
 
-        conn.commit()
+# ================= EXPLAIN =================
 
-        return {
-            "is_correct": is_correct,
-            "theta": new_theta,
-            "finished": finished
-        }
+@app.get("/cat/explain/{student_id}")
+def explain(student_id: int):
+    with neo_driver.session() as s:
+        res = s.run("""
+        MATCH (s:Student {student_id:$sid})-[r:HAS_MASTERY]->(t)
+        RETURN t.topic_id AS topic, r.mastery AS m
+        ORDER BY m ASC
+        """, sid=student_id)
 
-    finally:
-        cur.close()
-        conn.close()
+        return [{"topic": r["topic"], "mastery": r["m"]} for r in res]
 
-# =====================================================
-# SUBMIT EXAM
-# =====================================================
+# ================= EVALUATION =================
 
-@app.post("/cat/submit/{attempt_id}")
-def submit_exam(attempt_id: int):
+@app.get("/cat/evaluate/{attempt_id}")
+def evaluate(attempt_id: int):
     conn = get_conn()
-    cur = conn.cursor()
 
-    try:
-        cur.execute("""
-            SELECT COUNT(*) FILTER (WHERE is_correct)
-            FROM attempt_answers
-            WHERE attempt_id=%s
-        """, (attempt_id,))
-        score = cur.fetchone()[0]
+    df = pd.read_sql("SELECT is_correct FROM attempt_answers WHERE attempt_id=%s", conn, params=[attempt_id])
 
-        cur.execute("""
-            UPDATE attempts
-            SET submitted_at = NOW(),
-                total_score = %s
-            WHERE id = %s
-        """, (score, attempt_id))
+    accuracy = df["is_correct"].mean()
 
-        conn.commit()
-
-        return {"score": score}
-
-    finally:
-        cur.close()
-        conn.close()
-
+    return {
+        "accuracy": float(accuracy),
+        "total_questions": len(df)
+    }
