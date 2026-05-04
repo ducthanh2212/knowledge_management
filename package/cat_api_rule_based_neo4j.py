@@ -1,14 +1,13 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import psycopg2
 import pandas as pd
 import numpy as np
 from neo4j import GraphDatabase
 
-app = FastAPI()
-
 # ================= CONFIG =================
-DB_CONFIG = {
+
+PG_CONFIG = {
     "host": "localhost",
     "port": 5432,
     "dbname": "kbs_adaptive_exam",
@@ -20,55 +19,50 @@ NEO4J_URI = "bolt://localhost:7687"
 NEO4J_USER = "neo4j"
 NEO4J_PASSWORD = "12345678"
 
-neo_driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD))
+app = FastAPI(title="CAT Rule-based Neo4j API")
 
+neo_driver = GraphDatabase.driver(
+    NEO4J_URI,
+    auth=(NEO4J_USER, NEO4J_PASSWORD)
+)
 
 def get_conn():
-    return psycopg2.connect(**DB_CONFIG)
+    return psycopg2.connect(**PG_CONFIG)
 
 # ================= IRT =================
 
 def prob_correct(theta, b):
     return 1 / (1 + np.exp(-(theta - b)))
 
-
-def update_theta(theta, b, result):
+def update_theta(theta, b, result, lr=0.2):
     p = prob_correct(theta, b)
-    return theta + 0.2 * (result - p)
+    return float(theta + lr * (result - p))
 
-# ================= RULE ENGINE (CHAINING) =================
+# ================= RULE ENGINE =================
 
 def evaluate_condition(val, op, thr):
-    if op == ">": return val > thr
-    if op == "<": return val < thr
-    if op == ">=": return val >= thr
-    if op == "<=": return val <= thr
-    if op == "==": return val == thr
-    return False
-
-
-def get_rules(topic_id):
-    query = """
-    MATCH (r:Rule)-[:APPLIES_TO]->(t:Topic {topic_id:$tid})
-    RETURN r ORDER BY r.priority DESC
-    """
-    with neo_driver.session() as s:
-        res = s.run(query, tid=topic_id)
-        return [dict(r["r"]) for r in res]
-
+    return {
+        ">": val > thr,
+        "<": val < thr,
+        ">=": val >= thr,
+        "<=": val <= thr,
+        "==": val == thr
+    }.get(op, False)
 
 def forward_chain(rules, difficulty, is_correct):
     facts = {"difficulty": difficulty, "correct": is_correct}
-    delta = 0
+    delta = 0.0
 
     for r in rules:
-        cond = evaluate_condition(facts["difficulty"], r["operator"], r["threshold"])
-        res = (facts["correct"] == r["result_required"])
+        cond = evaluate_condition(
+            facts["difficulty"],
+            r.get("operator"),
+            r.get("threshold")
+        )
+        res = (facts["correct"] == r.get("result_required"))
 
         if cond and res:
-            delta += r["weight"]
-
-            # chaining effect
+            delta += r.get("weight", 0)
             facts["difficulty"] += r.get("difficulty_delta", 0)
 
     return delta
@@ -84,58 +78,67 @@ def init_mastery(student_id):
         ON CREATE SET r.mastery = 0.5
         """, sid=student_id)
 
-
-def get_weak_topics(student_id):
+def get_weak_topics(student_id, k=3):
     with neo_driver.session() as s:
         res = s.run("""
         MATCH (s:Student {student_id:$sid})-[r:HAS_MASTERY]->(t)
         RETURN t.topic_id AS tid, r.mastery AS m
-        ORDER BY m ASC LIMIT 3
-        """, sid=student_id)
+        ORDER BY m ASC LIMIT $k
+        """, sid=student_id, k=k)
         return [r["tid"] for r in res]
 
-
-def get_learning_path(topic_id):
+def get_learning_path(topic_ids):
+    if not topic_ids:
+        return []
     with neo_driver.session() as s:
         res = s.run("""
-        MATCH (t:Topic {topic_id:$tid})<-[:PREREQUISITE_OF*]-(pre)
-        RETURN pre.topic_id AS tid
-        """, tid=topic_id)
+        MATCH (t:Topic)
+        WHERE t.topic_id IN $tids
+        MATCH (t)<-[:PREREQUISITE_OF*]-(pre)
+        RETURN DISTINCT pre.topic_id AS tid
+        """, tids=topic_ids)
         return [r["tid"] for r in res]
 
+def get_rules(topic_id):
+    with neo_driver.session() as s:
+        res = s.run("""
+        MATCH (r:Rule)-[:APPLIES_TO]->(t:Topic {topic_id:$tid})
+        RETURN r ORDER BY r.priority DESC
+        """, tid=topic_id)
+        return [dict(r["r"]) for r in res]
 
 def update_mastery(student_id, question_id, is_correct, difficulty):
+    explanations = []
+
     with neo_driver.session() as s:
         res = s.run("""
         MATCH (q:Question {question_id:$qid})-[rel:RELATED_TO]->(t)
         RETURN t.topic_id AS tid, rel.relevance_weight AS w
         """, qid=question_id)
 
-        explanations = []
-
         for r in res:
             tid = r["tid"]
-            w = r["w"]
+            weight = r["w"]
 
             rules = get_rules(tid)
             delta = forward_chain(rules, difficulty, is_correct)
 
             s.run("""
             MATCH (s:Student {student_id:$sid})-[m:HAS_MASTERY]->(t:Topic {topic_id:$tid})
-            SET m.mastery = m.mastery + $d * $w
-            """, sid=student_id, tid=tid, d=delta, w=w)
+            SET m.mastery = coalesce(m.mastery,0.5) + $delta * $w
+            """, sid=student_id, tid=tid, delta=delta, w=weight)
 
             explanations.append({
                 "topic": tid,
                 "delta": delta,
-                "rules_used": len(rules)
+                "rules_applied": len(rules)
             })
 
-        return explanations
+    return explanations
 
 # ================= MODELS =================
 
-class SubmitAnswer(BaseModel):
+class AnswerRequest(BaseModel):
     attempt_id: int
     student_id: int
     question_id: int
@@ -149,19 +152,35 @@ def start(student_id: int, subject_id: int):
     conn = get_conn()
     cur = conn.cursor()
 
-    init_mastery(student_id)
+    try:
+        init_mastery(student_id)
 
-    cur.execute("SELECT ability FROM students WHERE id=%s", (student_id,))
-    theta = cur.fetchone()[0]
+        cur.execute(
+            "SELECT ability FROM students WHERE student_id=%s",
+            (student_id,)
+        )
+        row = cur.fetchone()
+        theta = row[0] if row and row[0] is not None else 0.0
 
-    cur.execute("""
-    INSERT INTO attempts(student_id,subject_id,current_theta,last_theta,theta_history)
-    VALUES(%s,%s,%s,%s,%s) RETURNING id
-    """, (student_id, subject_id, theta, theta, [theta]))
+        cur.execute("""
+        INSERT INTO attempts(
+            student_id, subject_id,
+            current_theta, last_theta, theta_history
+        )
+        VALUES (%s,%s,%s,%s,%s)
+        RETURNING attempt_id
+        """, (student_id, subject_id, theta, theta, [theta]))
 
-    aid = cur.fetchone()[0]
-    conn.commit()
-    return {"attempt_id": aid}
+        aid = cur.fetchone()[0]
+        conn.commit()
+
+        return {"attempt_id": aid}
+
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(500, str(e))
+    finally:
+        conn.close()
 
 # ================= NEXT =================
 
@@ -169,71 +188,182 @@ def start(student_id: int, subject_id: int):
 def next_q(aid: int):
     conn = get_conn()
 
-    at = pd.read_sql("SELECT * FROM attempts WHERE id=%s", conn, params=[aid]).iloc[0]
+    try:
+        at = pd.read_sql(
+            "SELECT * FROM attempts WHERE attempt_id=%s",
+            conn,
+            params=[aid]
+        )
 
-    theta = at["current_theta"]
-    sid = at["student_id"]
+        if at.empty:
+            raise HTTPException(404, "Attempt not found")
 
-    topics = get_weak_topics(sid)
+        at = at.iloc[0]
+        theta = at["current_theta"]
+        sid = at["student_id"]
 
-    # include prerequisite learning path
-    extended = set(topics)
-    for t in topics:
-        extended.update(get_learning_path(t))
+        weak = get_weak_topics(sid)
+        prereq = get_learning_path(weak)
+        topic_pool = list(set(weak + prereq))
 
-    with neo_driver.session() as s:
-        res = s.run("""
-        MATCH (q:Question)-[r:RELATED_TO]->(t)
-        WHERE t.topic_id IN $tids
-        RETURN q.question_id AS qid, r.relevance_weight AS w
-        """, tids=list(extended))
+        if not topic_pool:
+            raise HTTPException(404, "No topics found")
 
-        candidates = [(r["qid"], r["w"]) for r in res]
+        with neo_driver.session() as s:
+            res = s.run("""
+            MATCH (q:Question)-[r:RELATED_TO]->(t)
+            WHERE t.topic_id IN $tids
+            RETURN q.question_id AS qid, r.relevance_weight AS w
+            """, tids=topic_pool)
 
-    ids = [c[0] for c in candidates]
+            candidates = [(r["qid"], r["w"]) for r in res]
 
-    df = pd.read_sql("SELECT id,difficulty,content FROM questions WHERE id=ANY(%s)", conn, params=[ids])
+        if not candidates:
+            raise HTTPException(404, "No questions found")
 
-    df["gap"] = abs(df["difficulty"] - theta)
-    wm = dict(candidates)
-    df["w"] = df["id"].map(wm)
+        ids = [c[0] for c in candidates]
 
-    df["score"] = 0.6*df["gap"] + 0.4*(1-df["w"])
+        df = pd.read_sql("""
+            SELECT question_id, difficulty, content
+            FROM questions
+            WHERE question_id = ANY(%s)
+        """, conn, params=[ids])
 
-    q = df.sort_values("score").iloc[0]
+        if df.empty:
+            raise HTTPException(404, "No questions in DB")
 
-    return {"qid": int(q["id"]), "content": q["content"]}
+        wm = dict(candidates)
+
+        df["gap"] = abs(df["difficulty"] - theta)
+        df["w"] = df["question_id"].map(wm)
+        df["score"] = 0.7 * df["gap"] + 0.3 * (1 - df["w"])
+
+        q = df.sort_values("score").iloc[0]
+
+        return {
+            "question_id": int(q["question_id"]),
+            "content": q["content"]
+        }
+
+    except Exception as e:
+        raise HTTPException(500, str(e))
+    finally:
+        conn.close()
 
 # ================= ANSWER =================
 
 @app.post("/cat/answer")
-def answer(req: SubmitAnswer):
+def answer(req: AnswerRequest):
     conn = get_conn()
     cur = conn.cursor()
 
-    cur.execute("SELECT correct_option,difficulty FROM questions WHERE id=%s", (req.question_id,))
-    correct, diff = cur.fetchone()
+    try:
+        cur.execute("""
+            SELECT qo.option_label, q.difficulty
+            FROM questions q
+            JOIN question_options qo
+            ON q.question_id = qo.question_id
+            WHERE q.question_id=%s AND qo.is_correct=true
+        """, (req.question_id,))
 
-    is_correct = (req.selected_option == correct)
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(404, "Question not found")
 
-    cur.execute("SELECT current_theta,theta_history FROM attempts WHERE id=%s", (req.attempt_id,))
-    theta, hist = cur.fetchone()
+        correct, diff = row
+        is_correct = (req.selected_option == correct)
 
-    new_theta = update_theta(theta, diff, int(is_correct))
-    hist.append(new_theta)
+        cur.execute("""
+            SELECT current_theta, theta_history
+            FROM attempts WHERE attempt_id=%s
+        """, (req.attempt_id,))
 
-    explanation = update_mastery(req.student_id, req.question_id, is_correct, diff)
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(404, "Attempt not found")
 
-    cur.execute("UPDATE attempts SET current_theta=%s,theta_history=%s WHERE id=%s",
-                (new_theta, hist, req.attempt_id))
+        theta, hist = row
 
-    conn.commit()
+        new_theta = update_theta(theta, diff, int(is_correct))
+        hist.append(new_theta)
 
-    return {
-        "correct": is_correct,
-        "theta": new_theta,
-        "explanation": explanation
-    }
+        explanation = update_mastery(
+            req.student_id,
+            req.question_id,
+            is_correct,
+            diff
+        )
+
+        cur.execute("""
+            UPDATE attempts
+            SET current_theta=%s,
+                theta_history=%s
+            WHERE attempt_id=%s
+        """, (new_theta, hist, req.attempt_id))
+
+        conn.commit()
+
+        return {
+            "correct": is_correct,
+            "theta": new_theta,
+            "explanation": explanation
+        }
+
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(500, str(e))
+    finally:
+        conn.close()
+
+# ================= SUBMIT =================
+
+@app.post("/cat/submit/{attempt_id}")
+def submit(attempt_id: int):
+    conn = get_conn()
+    cur = conn.cursor()
+
+    try:
+        cur.execute("""
+            SELECT student_id, theta_history
+            FROM attempts WHERE attempt_id=%s
+        """, (attempt_id,))
+
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(404, "Attempt not found")
+
+        student_id, theta_hist = row
+        final_theta = theta_hist[-1]
+
+        cur.execute("""
+            UPDATE attempts
+            SET status='COMPLETED'
+            WHERE attempt_id=%s
+        """, (attempt_id,))
+
+        conn.commit()
+
+        with neo_driver.session() as s:
+            res = s.run("""
+            MATCH (s:Student {student_id:$sid})-[r:HAS_MASTERY]->(t)
+            RETURN t.topic_id AS topic, r.mastery AS mastery
+            ORDER BY mastery ASC
+            """, sid=student_id)
+
+            mastery = [dict(r) for r in res]
+
+        return {
+            "attempt_id": attempt_id,
+            "final_theta": final_theta,
+            "status": "COMPLETED",
+            "mastery_summary": mastery
+        }
+
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(500, str(e))
+    finally:
+        conn.close()
 
 # ================= EXPLAIN =================
 
@@ -242,23 +372,14 @@ def explain(student_id: int):
     with neo_driver.session() as s:
         res = s.run("""
         MATCH (s:Student {student_id:$sid})-[r:HAS_MASTERY]->(t)
-        RETURN t.topic_id AS topic, r.mastery AS m
-        ORDER BY m ASC
+        RETURN t.topic_id AS topic, r.mastery AS mastery
+        ORDER BY mastery ASC
         """, sid=student_id)
 
-        return [{"topic": r["topic"], "mastery": r["m"]} for r in res]
+        return [dict(r) for r in res]
 
-# ================= EVALUATION =================
+# ================= HEALTH =================
 
-@app.get("/cat/evaluate/{attempt_id}")
-def evaluate(attempt_id: int):
-    conn = get_conn()
-
-    df = pd.read_sql("SELECT is_correct FROM attempt_answers WHERE attempt_id=%s", conn, params=[attempt_id])
-
-    accuracy = df["is_correct"].mean()
-
-    return {
-        "accuracy": float(accuracy),
-        "total_questions": len(df)
-    }
+@app.get("/")
+def root():
+    return {"status": "CAT Rule-based API running"}

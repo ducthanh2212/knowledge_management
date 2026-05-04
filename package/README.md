@@ -1,440 +1,284 @@
-# Knowledge Management System — PostgreSQL + Neo4j ETL Project
+# 🎓 Hybrid Computerized Adaptive Testing System
 
-## Overview
-
-This project builds a lightweight Knowledge Management System pipeline using:
-
-- Excel as the raw source
-- PostgreSQL as the structured database
-- Neo4j as the knowledge graph
-
-The project is designed to:
-
-- load exam/question data into PostgreSQL
-- normalize relational data
-- synchronize data into Neo4j
-- build semantic relationships for knowledge exploration
+## (IRT + Knowledge Graph + Rule-Based Reasoning)
 
 ---
 
-# Project Structure
+## 1. 📌 Giới thiệu
 
-```text
-project/
-│
-├── bootstrap_schema_postgres.py
-├── docker-compose.yml
-├── etl_to_postgresql.py
-├── postgres_to_neo4j.py
-├── questions_week3_fixed_complete.xlsx
-├── requirements.txt
-├── test_connections.py
-└── README.md
+Dự án này xây dựng một **hệ thống kiểm tra thích ứng (Computerized Adaptive Testing – CAT)** kết hợp ba thành phần:
+
+* **Item Response Theory (IRT)** → mô hình hóa năng lực người học
+* **Knowledge Graph (Neo4j)** → biểu diễn tri thức và quan hệ giữa các chủ đề
+* **Rule-Based System** → suy luận và cập nhật mức độ hiểu biết (mastery)
+
+Hệ thống hướng tới:
+
+* Cá nhân hóa bài kiểm tra theo năng lực
+* Tối ưu lộ trình học
+* Giải thích được (Explainable AI)
+
+---
+
+## 2. 🎯 Mục tiêu
+
+* Xây dựng hệ CAT thích ứng theo năng lực (θ – theta)
+* Tích hợp Knowledge Graph để khai thác quan hệ giữa các topic
+* Áp dụng rule-based reasoning để cập nhật mastery
+* Cung cấp cơ chế giải thích kết quả học tập
+
+---
+
+## 3. 🧠 Kiến trúc hệ thống
+
+### 3.1 Tổng quan
+
+```
++-------------------+
+|    FastAPI API    |
++-------------------+
+         |
+         v
++-------------------+        +----------------------+
+|   PostgreSQL      | <----> |        Neo4j         |
+| (Transactional DB)|        | (Knowledge Graph)    |
++-------------------+        +----------------------+
+         |
+         v
++-------------------+
+|   IRT Engine      |
++-------------------+
+         |
+         v
++-------------------+
+| Rule-based Engine |
++-------------------+
 ```
 
 ---
 
-# File Descriptions
+### 3.2 Thành phần chính
 
-## bootstrap_schema_postgres.py
-
-Creates PostgreSQL schema automatically.
-
-Purpose:
-
-- create database tables
-- initialize constraints
-- prepare schema before ETL
-
-Run first before loading data.
+| Thành phần  | Vai trò                                    |
+| ----------- | ------------------------------------------ |
+| FastAPI     | API layer                                  |
+| PostgreSQL  | Lưu dữ liệu câu hỏi, sinh viên, attempt    |
+| Neo4j       | Lưu graph tri thức (Topic, Question, Rule) |
+| IRT         | Cập nhật năng lực θ                        |
+| Rule Engine | Cập nhật mastery + giải thích              |
 
 ---
 
-## docker-compose.yml
+## 4. 📊 Mô hình toán học (IRT)
 
-Starts local database services.
+Xác suất trả lời đúng:
 
-Typically includes:
+[
+P(\theta) = \frac{1}{1 + e^{-(\theta - b)}}
+]
 
-- PostgreSQL container
-- Neo4j container
+Cập nhật năng lực:
 
-Run:
+[
+\theta_{new} = \theta + \alpha (r - P(\theta))
+]
+
+Trong đó:
+
+* ( \theta ): năng lực hiện tại
+* ( b ): độ khó câu hỏi
+* ( r ): kết quả (0/1)
+* ( \alpha ): learning rate
+
+---
+
+## 5. 🧩 Knowledge Graph (Neo4j)
+
+### 5.1 Node
+
+* `Student`
+* `Topic`
+* `Question`
+* `Rule`
+
+### 5.2 Relationship
+
+* `HAS_MASTERY`
+* `RELATED_TO`
+* `PREREQUISITE_OF`
+* `APPLIES_TO`
+
+---
+
+## 6. ⚙️ Rule-Based Reasoning
+
+Sử dụng **forward chaining**:
+
+* Input:
+
+  * difficulty
+  * correct/incorrect
+* Rule:
+
+  * operator, threshold, weight
+* Output:
+
+  * delta mastery
+
+Ví dụ:
+
+```
+IF difficulty > 0.5 AND correct = true
+THEN increase mastery by 0.1
+```
+
+---
+
+## 7. 🔄 Quy trình hoạt động
+
+```
+Start Test
+   ↓
+Select Question (IRT + Graph)
+   ↓
+User Answer
+   ↓
+Update Theta (IRT)
+   ↓
+Update Mastery (Rule + Neo4j)
+   ↓
+Next Question
+   ↓
+Submit Test
+```
+
+---
+
+## 8. 🌐 API Endpoints
+
+### 8.1 Start Test
+
+```
+POST /cat/start/{student_id}/{subject_id}
+```
+
+---
+
+### 8.2 Get Next Question
+
+```
+GET /cat/next/{attempt_id}
+```
+
+---
+
+### 8.3 Submit Answer
+
+```
+POST /cat/answer
+```
+
+Body:
+
+```json
+{
+  "attempt_id": 1,
+  "student_id": 1,
+  "question_id": 10,
+  "selected_option": "A",
+  "time_spent_sec": 30
+}
+```
+
+---
+
+### 8.4 Submit Test
+
+```
+POST /cat/submit/{attempt_id}
+```
+
+---
+
+### 8.5 Explain Knowledge
+
+```
+GET /cat/explain/{student_id}
+```
+
+---
+
+## 9. ⚙️ Cài đặt và chạy hệ thống
+
+### 9.1 Cài thư viện
 
 ```bash
-docker-compose up -d
-```
-
-This launches:
-
-- PostgreSQL database
-- Neo4j graph database
-
----
-
-## etl_to_postgresql.py
-
-Loads Excel data into PostgreSQL.
-
-Flow:
-
-```text
-Excel
-  ↓
-Data Cleaning
-  ↓
-Normalization
-  ↓
-PostgreSQL Insert
-```
-
-Responsibilities:
-
-- read Excel file
-- validate records
-- clean data
-- insert relational records
-
----
-
-## postgres_to_neo4j.py
-
-Synchronizes PostgreSQL data into Neo4j.
-
-Flow:
-
-```text
-PostgreSQL
-  ↓
-Incremental Sync
-  ↓
-Neo4j Graph
-```
-
-Responsibilities:
-
-- fetch PostgreSQL rows
-- incremental sync
-- create Neo4j nodes
-- create Neo4j relationships
-- track sync checkpoints
-
----
-
-## questions_week3_fixed_complete.xlsx
-
-Raw source data.
-
-Contains:
-
-- subjects
-- topics
-- questions
-- answer options
-- knowledge relationships
-
-Used by:
-
-```text
-etl_to_postgresql.py
+pip install fastapi uvicorn psycopg2 pandas numpy neo4j
 ```
 
 ---
 
-## requirements.txt
-
-Python dependencies.
-
-Install packages:
+### 9.2 Thứ tự chạy
 
 ```bash
-pip install -r requirements.txt
-```
-
----
-
-## test_connections.py
-
-Checks database connectivity.
-
-Purpose:
-
-- test PostgreSQL connection
-- test Neo4j connection
-- verify credentials
-
-Run before ETL or sync.
-
----
-
-# System Flow
-
-```text
-questions_week3_fixed_complete.xlsx
-                ↓
-        etl_to_postgresql.py
-                ↓
-            PostgreSQL
-                ↓
-         postgres_to_neo4j.py
-                ↓
-               Neo4j
-```
-
----
-
-# Setup Guide
-
-## Step 1 — Start Services
-
-Run Docker containers:
-
-```bash
-docker-compose up -d
-```
-
----
-
-## Step 2 — Install Dependencies
-
-```bash
-pip install -r requirements.txt
-```
-
----
-
-## Step 3 — Test Database Connections
-
-```bash
-python test_connections.py
-```
-
-Expected:
-
-```text
-PostgreSQL Connected
-Neo4j Connected
-```
-
-This step verifies:
-
-- PostgreSQL credentials
-- Neo4j credentials
-- container availability
-- network connectivity
-
----
-
-## Step 4 — Create PostgreSQL Schema
-
-```bash
+# 1. Tạo schema
 python bootstrap_schema_postgres.py
-```
 
-This creates required tables.
-
----
-
-## Step 5 — Load Excel Into PostgreSQL
-
-```bash
+# 2. ETL dữ liệu
 python etl_to_postgresql.py
-```
 
-This loads Excel data into PostgreSQL.
-
----
-
-## Step 6 — Sync PostgreSQL → Neo4j
-
-```bash
+# 3. Sync sang Neo4j
 python postgres_to_neo4j.py
-```
 
-This creates graph data.
+# 4. Thêm ability
+ALTER TABLE students ADD COLUMN ability FLOAT DEFAULT 0.0;
 
----
-
-# Database Architecture
-
-## PostgreSQL Role
-
-PostgreSQL stores:
-
-- normalized tables
-- transactional records
-- ETL output
-
-Acts as:
-
-```text
-source of truth
+# 5. Chạy API
+uvicorn cat_api_rule_based_neo4j:app --reload
 ```
 
 ---
 
-## Neo4j Role
+## 10. 📈 Đóng góp chính
 
-Neo4j stores:
-
-- graph relationships
-- semantic knowledge connections
-- traversal-friendly data
-
-Acts as:
-
-```text
-knowledge graph layer
-```
+* Kết hợp **IRT + Knowledge Graph + Rule-based**
+* Xây dựng hệ thống **Explainable CAT**
+* Tích hợp suy luận tri thức vào adaptive testing
+* Tăng khả năng cá nhân hóa và giải thích
 
 ---
 
-# Neo4j Graph Structure
+## 11. ⚠️ Hạn chế
 
-## Nodes
-
-```text
-Subject
-Topic
-Question
-Option
-QuestionType
-```
+* Rule-based còn đơn giản (chưa học từ dữ liệu)
+* Chưa có stopping condition tối ưu
+* Chưa có exposure control cho câu hỏi
 
 ---
 
-## Relationships
+## 12. 🚀 Hướng phát triển
 
-```text
-(:Topic)-[:BELONGS_TO]->(:Subject)
-
-(:Question)-[:BELONGS_TO]->(:Subject)
-
-(:Question)-[:PRIMARY_TOPIC]->(:Topic)
-
-(:Question)-[:HAS_OPTION]->(:Option)
-
-(:Question)-[:HAS_TYPE]->(:QuestionType)
-
-(:Question)-[:RELATED_TO]->(:Topic)
-```
+* Bayesian IRT
+* Machine Learning ranking
+* Reinforcement Learning cho question selection
+* Auto rule learning
+* Dashboard visualization
 
 ---
 
-# Incremental Sync
+## 13. 📚 Tài liệu tham khảo
 
-The sync engine supports:
-
-```text
-created_at
-updated_at
-deleted_at
-```
-
-Incremental logic:
-
-```sql
-GREATEST(
-    created_at,
-    updated_at,
-    deleted_at
-)
-```
-
-Benefits:
-
-- insert tracking
-- update tracking
-- delete tracking
+* Lord, F. M. (1980). *Applications of Item Response Theory*
+* Russell & Norvig (AI – Knowledge-Based Systems)
+* Neo4j Graph Data Modeling
+* FastAPI Documentation
 
 ---
 
-# Common Commands
+## 14. 👨‍💻 Tác giả
 
-## Start Services
-
-```bash
-docker-compose up -d
-```
+* Họ tên: …
+* Môn học: Knowledge-Based Systems
+* Giảng viên: …
 
 ---
-
-## Stop Services
-
-```bash
-docker-compose down
-```
-
----
-
-## Run ETL
-
-```bash
-python etl_to_postgresql.py
-```
-
----
-
-## Run Graph Sync
-
-```bash
-python postgres_to_neo4j.py
-```
-
----
-
-## Test Connections
-
-```bash
-python test_connections.py
-```
-
----
-
-# Expected Workflow
-
-```text
-1. Start Docker
-2. Create schema
-3. Test connection
-4. Load Excel
-5. Sync graph
-```
-
----
-
-# Recommended Python Version
-
-```text
-Python 3.10+
-```
-
----
-
-# Dependencies
-
-Typical dependencies:
-
-- psycopg2
-- pandas
-- openpyxl
-- neo4j
-- python-dotenv
-
----
-
-# Notes
-
-- PostgreSQL stores structured data
-- Neo4j stores graph data
-- Excel is used only as ingestion source
-- Incremental sync avoids full reload
-
----
-
-# Author
-
-Knowledge Management System
-
-PostgreSQL → Neo4j ETL + Graph Sync Pipeline
-
