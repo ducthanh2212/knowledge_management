@@ -1,186 +1,177 @@
-# 🎓 Hybrid Computerized Adaptive Testing System
+# 📘 README – Adaptive Exam System (Hybrid DB + Rule-based CAT)
 
-## (IRT + Knowledge Graph + Rule-Based Reasoning)
+## 1. Tổng quan hệ thống
 
----
+Hệ thống triển khai mô hình **Computerized Adaptive Testing (CAT)** nhằm sinh đề thi thích nghi theo năng lực người học.
 
-## 1. 📌 Giới thiệu
+Kiến trúc sử dụng mô hình **Hybrid Database**:
 
-Dự án này xây dựng một **hệ thống kiểm tra thích ứng (Computerized Adaptive Testing – CAT)** kết hợp ba thành phần:
+* **PostgreSQL**: lưu dữ liệu vận hành (câu hỏi, sinh viên, attempts…)
+* **Neo4j**: lưu đồ thị tri thức (Topic, Rule, Mastery)
+* **Rule Engine**: suy luận cập nhật năng lực
+* **FastAPI**: cung cấp API cho hệ thống thi
 
-* **Item Response Theory (IRT)** → mô hình hóa năng lực người học
-* **Knowledge Graph (Neo4j)** → biểu diễn tri thức và quan hệ giữa các chủ đề
-* **Rule-Based System** → suy luận và cập nhật mức độ hiểu biết (mastery)
+Hệ thống kết hợp:
 
-Hệ thống hướng tới:
-
-* Cá nhân hóa bài kiểm tra theo năng lực
-* Tối ưu lộ trình học
-* Giải thích được (Explainable AI)
-
----
-
-## 2. 🎯 Mục tiêu
-
-* Xây dựng hệ CAT thích ứng theo năng lực (θ – theta)
-* Tích hợp Knowledge Graph để khai thác quan hệ giữa các topic
-* Áp dụng rule-based reasoning để cập nhật mastery
-* Cung cấp cơ chế giải thích kết quả học tập
+* IRT (Item Response Theory)
+* Rule-based reasoning
+* Knowledge Graph
 
 ---
 
-## 3. 🧠 Kiến trúc hệ thống
-
-### 3.1 Tổng quan
+## 2. Cấu trúc project
 
 ```
-+-------------------+
-|    FastAPI API    |
-+-------------------+
-         |
-         v
-+-------------------+        +----------------------+
-|   PostgreSQL      | <----> |        Neo4j         |
-| (Transactional DB)|        | (Knowledge Graph)    |
-+-------------------+        +----------------------+
-         |
-         v
-+-------------------+
-|   IRT Engine      |
-+-------------------+
-         |
-         v
-+-------------------+
-| Rule-based Engine |
-+-------------------+
+.
+├── bootstrap_schema_postgres.py
+├── etl_to_postgresql.py
+├── postgres_to_neo4j.py
+├── load_rules.py
+├── cat_api_rule_based_neo4j.py
+├── test_connections.py
+├── docker-compose.yml
+├── requirements.txt
+├── rules.csv
+├── Script seed data.sql
 ```
 
 ---
 
-### 3.2 Thành phần chính
+## 3. Yêu cầu hệ thống
 
-| Thành phần  | Vai trò                                    |
-| ----------- | ------------------------------------------ |
-| FastAPI     | API layer                                  |
-| PostgreSQL  | Lưu dữ liệu câu hỏi, sinh viên, attempt    |
-| Neo4j       | Lưu graph tri thức (Topic, Question, Rule) |
-| IRT         | Cập nhật năng lực θ                        |
-| Rule Engine | Cập nhật mastery + giải thích              |
+* Python >= 3.9
+* Docker + Docker Compose
 
----
+Ports sử dụng:
 
-## 4. 📊 Mô hình toán học (IRT)
-
-Xác suất trả lời đúng:
-
-[
-P(\theta) = \frac{1}{1 + e^{-(\theta - b)}}
-]
-
-Cập nhật năng lực:
-
-[
-\theta_{new} = \theta + \alpha (r - P(\theta))
-]
-
-Trong đó:
-
-* ( \theta ): năng lực hiện tại
-* ( b ): độ khó câu hỏi
-* ( r ): kết quả (0/1)
-* ( \alpha ): learning rate
+* PostgreSQL: 5432
+* Neo4j: 7687, 7474
 
 ---
 
-## 5. 🧩 Knowledge Graph (Neo4j)
+## 4. Khởi động database
 
-### 5.1 Node
-
-* `Student`
-* `Topic`
-* `Question`
-* `Rule`
-
-### 5.2 Relationship
-
-* `HAS_MASTERY`
-* `RELATED_TO`
-* `PREREQUISITE_OF`
-* `APPLIES_TO`
-
----
-
-## 6. ⚙️ Rule-Based Reasoning
-
-Sử dụng **forward chaining**:
-
-* Input:
-
-  * difficulty
-  * correct/incorrect
-* Rule:
-
-  * operator, threshold, weight
-* Output:
-
-  * delta mastery
-
-Ví dụ:
+Chạy container cho PostgreSQL và Neo4j:
 
 ```
-IF difficulty > 0.5 AND correct = true
-THEN increase mastery by 0.1
+docker-compose up -d
 ```
 
 ---
 
-## 7. 🔄 Quy trình hoạt động
+## 5. Cài đặt thư viện
 
 ```
-Start Test
-   ↓
-Select Question (IRT + Graph)
-   ↓
-User Answer
-   ↓
-Update Theta (IRT)
-   ↓
-Update Mastery (Rule + Neo4j)
-   ↓
-Next Question
-   ↓
-Submit Test
+pip install -r requirements.txt
 ```
 
 ---
 
-## 8. 🌐 API Endpoints
+## 6. Kiểm tra kết nối (BƯỚC ĐẦU TIÊN – BẮT BUỘC)
 
-### 8.1 Start Test
+Chạy:
+
+```
+python test_connections.py
+```
+
+Mục tiêu:
+
+* Kiểm tra kết nối PostgreSQL
+* Kiểm tra kết nối Neo4j
+
+Nếu lỗi:
+
+* Kiểm tra Docker đã chạy chưa
+* Kiểm tra config DB trong code
+
+---
+
+## 7. Thiết lập dữ liệu
+
+### Bước 1: Tạo schema PostgreSQL
+
+```
+python bootstrap_schema_postgres.py
+```
+
+### Bước 2: Seed dữ liệu ban đầu
+
+```
+psql -U kbs_user -d kbs_adaptive_exam -f "Script seed data.sql"
+```
+
+### Bước 3: Import dữ liệu vào PostgreSQL
+
+```
+python etl_to_postgresql.py
+```
+
+### Bước 4: Đồng bộ dữ liệu sang Neo4j
+
+```
+python postgres_to_neo4j.py
+```
+
+### Bước 5: Load Rule Engine
+
+```
+python load_rules.py
+```
+
+---
+
+## 8. Chạy API
+
+Khởi động server:
+
+```
+uvicorn cat_api_rule_based_neo4j:app --reload
+```
+
+Swagger UI:
+
+```
+http://127.0.0.1:8000/docs
+```
+
+---
+
+## 9. Luồng hoạt động hệ thống (CAT)
+
+### 1. Bắt đầu bài thi
 
 ```
 POST /cat/start/{student_id}/{subject_id}
 ```
 
+→ Tạo attempt và khởi tạo năng lực (theta)
+
 ---
 
-### 8.2 Get Next Question
+### 2. Lấy câu hỏi tiếp theo
 
 ```
 GET /cat/next/{attempt_id}
 ```
 
+Logic:
+
+* Lấy topic yếu từ Neo4j
+* Mở rộng prerequisite
+* Chọn câu hỏi phù hợp với theta
+
 ---
 
-### 8.3 Submit Answer
+### 3. Trả lời câu hỏi
 
 ```
 POST /cat/answer
 ```
 
-Body:
+Body mẫu:
 
-```json
+```
 {
   "attempt_id": 1,
   "student_id": 1,
@@ -190,17 +181,29 @@ Body:
 }
 ```
 
+Xử lý:
+
+* Kiểm tra đúng/sai
+* Update theta (IRT)
+* Apply rule engine
+* Update mastery graph
+
 ---
 
-### 8.4 Submit Test
+### 4. Nộp bài
 
 ```
 POST /cat/submit/{attempt_id}
 ```
 
+Kết quả:
+
+* final theta
+* mastery theo topic
+
 ---
 
-### 8.5 Explain Knowledge
+### 5. Xem phân tích năng lực
 
 ```
 GET /cat/explain/{student_id}
@@ -208,77 +211,60 @@ GET /cat/explain/{student_id}
 
 ---
 
-## 9. ⚙️ Cài đặt và chạy hệ thống
+## 10. Quick Run (chạy nhanh toàn bộ hệ thống)
 
-### 9.1 Cài thư viện
-
-```bash
-pip install fastapi uvicorn psycopg2 pandas numpy neo4j
 ```
+docker-compose up -d
+pip install -r requirements.txt
 
----
+python test_connections.py
 
-### 9.2 Thứ tự chạy
-
-```bash
-# 1. Tạo schema
 python bootstrap_schema_postgres.py
-
-# 2. ETL dữ liệu
+psql -U kbs_user -d kbs_adaptive_exam -f "Script seed data.sql"
 python etl_to_postgresql.py
-
-# 3. Sync sang Neo4j
 python postgres_to_neo4j.py
+python load_rules.py
 
-# 4. Thêm ability
-ALTER TABLE students ADD COLUMN ability FLOAT DEFAULT 0.0;
-
-# 5. Chạy API
 uvicorn cat_api_rule_based_neo4j:app --reload
 ```
 
 ---
 
-## 10. 📈 Đóng góp chính
+## 11. Troubleshooting
 
-* Kết hợp **IRT + Knowledge Graph + Rule-based**
-* Xây dựng hệ thống **Explainable CAT**
-* Tích hợp suy luận tri thức vào adaptive testing
-* Tăng khả năng cá nhân hóa và giải thích
+### Không kết nối PostgreSQL
 
----
+```
+docker ps
+```
 
-## 11. ⚠️ Hạn chế
+### Không kết nối Neo4j
 
-* Rule-based còn đơn giản (chưa học từ dữ liệu)
-* Chưa có stopping condition tối ưu
-* Chưa có exposure control cho câu hỏi
+* Kiểm tra password trong code
 
----
+### Không có dữ liệu câu hỏi
 
-## 12. 🚀 Hướng phát triển
+* Chưa chạy ETL
+* Chưa sync Neo4j
 
-* Bayesian IRT
-* Machine Learning ranking
-* Reinforcement Learning cho question selection
-* Auto rule learning
-* Dashboard visualization
+### Rule không hoạt động
+
+```
+python load_rules.py
+```
 
 ---
 
-## 13. 📚 Tài liệu tham khảo
+## 12. Ghi chú
 
-* Lord, F. M. (1980). *Applications of Item Response Theory*
-* Russell & Norvig (AI – Knowledge-Based Systems)
-* Neo4j Graph Data Modeling
-* FastAPI Documentation
+Hệ thống được thiết kế theo hướng:
 
----
+* Hybrid Database
+* Rule-based reasoning
+* Adaptive Testing (IRT)
 
-## 14. 👨‍💻 Tác giả
+Có thể mở rộng:
 
-* Họ tên: …
-* Môn học: Knowledge-Based Systems
-* Giảng viên: …
-
----
+* Sinh câu hỏi bằng LLM
+* Adaptive difficulty nâng cao
+* Dashboard analytics
