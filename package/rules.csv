@@ -1,0 +1,22 @@
+rule_id,priority,weight,topic_ids,conditions,delta,description
+R1_HARD_CORRECT,10,1,1|2|3,difficulty>=0.8;correct==True,0.15,Hard question correct
+R2_HARD_INCORRECT,10,1,1|2|3,difficulty>=0.8;correct==False,-0.12,Hard question incorrect
+,,,,,,
+R3_MEDHARD_CORRECT,9,1,1|2|3,difficulty>=0.6;difficulty<0.8;correct==True,0.1,Medium hard correct
+R4_MEDHARD_INCORRECT,9,1,1|2|3,difficulty>=0.6;difficulty<0.8;correct==False,-0.08,Medium hard incorrect
+,,,,,,
+R5_MED_CORRECT,7,1,1|2|3,difficulty>=0.3;difficulty<0.6;correct==True,0.06,Medium correct
+R6_MED_INCORRECT,7,1,1|2|3,difficulty>=0.3;difficulty<0.6;correct==False,-0.05,Medium incorrect
+,,,,,,
+R7_EASY_CORRECT,5,1,1|2|3,difficulty<=0.3;correct==True,0.03,Easy correct
+R8_EASY_INCORRECT,6,1,1|2|3,difficulty<=0.3;correct==False,-0.06,Easy incorrect
+,,,,,,
+R9_FAST_CORRECT,6,1,1|2|3,time_spent<5;correct==True,0.05,Fast correct
+R10_SLOW_CORRECT,4,1,1|2|3,time_spent>30;correct==True,0.02,Slow correct
+R11_FAST_INCORRECT,6,1,1|2|3,time_spent<5;correct==False,-0.04,Fast incorrect
+,,,,,,
+R12_STREAK_CORRECT,5,1,1|2|3,streak_correct>=3,0.05,Correct streak bonus
+R13_STREAK_WRONG,5,1,1|2|3,streak_wrong>=3,-0.07,Wrong streak penalty
+,,,,,,
+R14_GUESSING,8,1,1|2|3,time_spent<2;correct==True,0.01,Guessing detected
+R15_CONFUSION,7,1,1|2|3,time_spent>40;correct==False,-0.08,Confusion detected
