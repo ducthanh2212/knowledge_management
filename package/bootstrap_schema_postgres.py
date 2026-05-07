@@ -133,6 +133,7 @@ CREATE TABLE IF NOT EXISTS students (
     full_name    VARCHAR(255),
     class_name   VARCHAR(100),
     email        VARCHAR(255) UNIQUE,
+    ability      FLOAT DEFAULT 0.0,
     created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 	updated_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 	deleted_at   TIMESTAMP NULL
@@ -198,16 +199,26 @@ CREATE TABLE IF NOT EXISTS exam_questions (
 -- 12. Table attempts
 CREATE TABLE IF NOT EXISTS attempts (
     attempt_id   BIGSERIAL PRIMARY KEY,
-    exam_id      BIGINT NOT NULL REFERENCES exams(exam_id) ON DELETE CASCADE,
+    -- For CAT flow we may start an attempt without creating an Exam first.
+    exam_id      BIGINT REFERENCES exams(exam_id) ON DELETE CASCADE,
     student_id   BIGINT NOT NULL REFERENCES students(student_id),
     started_at   TIMESTAMP,
     submitted_at TIMESTAMP,
     total_score  NUMERIC(5,2),
     max_score    NUMERIC(5,2),
     feedback     TEXT,
+	current_theta FLOAT,
+	question_count INT DEFAULT 0,
+	max_questions INT DEFAULT 10,
+	subject_id BIGINT NOT NULL REFERENCES subjects(subject_id),
+	theta_history FLOAT[],
+	last_theta FLOAT,
+	is_finished BOOLEAN DEFAULT FALSE,
+	status TEXT DEFAULT 'IN_PROGRESS',
 	created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 	updated_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 	deleted_at   TIMESTAMP NULL,
+	-- exam_id can be NULL for CAT attempts.
     UNIQUE(exam_id, student_id)
 );
 

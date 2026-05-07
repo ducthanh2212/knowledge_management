@@ -1,440 +1,270 @@
-# Knowledge Management System — PostgreSQL + Neo4j ETL Project
+# 📘 README – Adaptive Exam System (Hybrid DB + Rule-based CAT)
 
-## Overview
+## 1. Tổng quan hệ thống
 
-This project builds a lightweight Knowledge Management System pipeline using:
+Hệ thống triển khai mô hình **Computerized Adaptive Testing (CAT)** nhằm sinh đề thi thích nghi theo năng lực người học.
 
-- Excel as the raw source
-- PostgreSQL as the structured database
-- Neo4j as the knowledge graph
+Kiến trúc sử dụng mô hình **Hybrid Database**:
 
-The project is designed to:
+* **PostgreSQL**: lưu dữ liệu vận hành (câu hỏi, sinh viên, attempts…)
+* **Neo4j**: lưu đồ thị tri thức (Topic, Rule, Mastery)
+* **Rule Engine**: suy luận cập nhật năng lực
+* **FastAPI**: cung cấp API cho hệ thống thi
 
-- load exam/question data into PostgreSQL
-- normalize relational data
-- synchronize data into Neo4j
-- build semantic relationships for knowledge exploration
+Hệ thống kết hợp:
+
+* IRT (Item Response Theory)
+* Rule-based reasoning
+* Knowledge Graph
 
 ---
 
-# Project Structure
+## 2. Cấu trúc project
 
-```text
-project/
-│
+```
+.
 ├── bootstrap_schema_postgres.py
-├── docker-compose.yml
 ├── etl_to_postgresql.py
 ├── postgres_to_neo4j.py
-├── questions_week3_fixed_complete.xlsx
-├── requirements.txt
+├── load_rules.py
+├── cat_api_rule_based_neo4j.py
 ├── test_connections.py
-└── README.md
+├── docker-compose.yml
+├── requirements.txt
+├── rules.csv
+├── Script seed data.sql
 ```
 
 ---
 
-# File Descriptions
+## 3. Yêu cầu hệ thống
 
-## bootstrap_schema_postgres.py
+* Python >= 3.9
+* Docker + Docker Compose
 
-Creates PostgreSQL schema automatically.
+Ports sử dụng:
 
-Purpose:
-
-- create database tables
-- initialize constraints
-- prepare schema before ETL
-
-Run first before loading data.
+* PostgreSQL: 5432
+* Neo4j: 7687, 7474
 
 ---
 
-## docker-compose.yml
+## 4. Khởi động database
 
-Starts local database services.
+Chạy container cho PostgreSQL và Neo4j:
 
-Typically includes:
-
-- PostgreSQL container
-- Neo4j container
-
-Run:
-
-```bash
-docker-compose up -d
 ```
-
-This launches:
-
-- PostgreSQL database
-- Neo4j graph database
-
----
-
-## etl_to_postgresql.py
-
-Loads Excel data into PostgreSQL.
-
-Flow:
-
-```text
-Excel
-  ↓
-Data Cleaning
-  ↓
-Normalization
-  ↓
-PostgreSQL Insert
-```
-
-Responsibilities:
-
-- read Excel file
-- validate records
-- clean data
-- insert relational records
-
----
-
-## postgres_to_neo4j.py
-
-Synchronizes PostgreSQL data into Neo4j.
-
-Flow:
-
-```text
-PostgreSQL
-  ↓
-Incremental Sync
-  ↓
-Neo4j Graph
-```
-
-Responsibilities:
-
-- fetch PostgreSQL rows
-- incremental sync
-- create Neo4j nodes
-- create Neo4j relationships
-- track sync checkpoints
-
----
-
-## questions_week3_fixed_complete.xlsx
-
-Raw source data.
-
-Contains:
-
-- subjects
-- topics
-- questions
-- answer options
-- knowledge relationships
-
-Used by:
-
-```text
-etl_to_postgresql.py
-```
-
----
-
-## requirements.txt
-
-Python dependencies.
-
-Install packages:
-
-```bash
-pip install -r requirements.txt
-```
-
----
-
-## test_connections.py
-
-Checks database connectivity.
-
-Purpose:
-
-- test PostgreSQL connection
-- test Neo4j connection
-- verify credentials
-
-Run before ETL or sync.
-
----
-
-# System Flow
-
-```text
-questions_week3_fixed_complete.xlsx
-                ↓
-        etl_to_postgresql.py
-                ↓
-            PostgreSQL
-                ↓
-         postgres_to_neo4j.py
-                ↓
-               Neo4j
-```
-
----
-
-# Setup Guide
-
-## Step 1 — Start Services
-
-Run Docker containers:
-
-```bash
 docker-compose up -d
 ```
 
 ---
 
-## Step 2 — Install Dependencies
+## 5. Cài đặt thư viện
 
-```bash
+```
 pip install -r requirements.txt
 ```
 
 ---
 
-## Step 3 — Test Database Connections
+## 6. Kiểm tra kết nối (BƯỚC ĐẦU TIÊN – BẮT BUỘC)
 
-```bash
+Chạy:
+
+```
 python test_connections.py
 ```
 
-Expected:
+Mục tiêu:
 
-```text
-PostgreSQL Connected
-Neo4j Connected
-```
+* Kiểm tra kết nối PostgreSQL
+* Kiểm tra kết nối Neo4j
 
-This step verifies:
+Nếu lỗi:
 
-- PostgreSQL credentials
-- Neo4j credentials
-- container availability
-- network connectivity
+* Kiểm tra Docker đã chạy chưa
+* Kiểm tra config DB trong code
 
 ---
 
-## Step 4 — Create PostgreSQL Schema
+## 7. Thiết lập dữ liệu
 
-```bash
+### Bước 1: Tạo schema PostgreSQL
+
+```
 python bootstrap_schema_postgres.py
 ```
 
-This creates required tables.
+### Bước 2: Seed dữ liệu ban đầu
 
----
+```
+psql -U kbs_user -d kbs_adaptive_exam -f "Script seed data.sql"
+```
 
-## Step 5 — Load Excel Into PostgreSQL
+### Bước 3: Import dữ liệu vào PostgreSQL
 
-```bash
+```
 python etl_to_postgresql.py
 ```
 
-This loads Excel data into PostgreSQL.
+### Bước 4: Đồng bộ dữ liệu sang Neo4j
 
----
-
-## Step 6 — Sync PostgreSQL → Neo4j
-
-```bash
+```
 python postgres_to_neo4j.py
 ```
 
-This creates graph data.
+### Bước 5: Load Rule Engine
 
----
-
-# Database Architecture
-
-## PostgreSQL Role
-
-PostgreSQL stores:
-
-- normalized tables
-- transactional records
-- ETL output
-
-Acts as:
-
-```text
-source of truth
+```
+python load_rules.py
 ```
 
 ---
 
-## Neo4j Role
+## 8. Chạy API
 
-Neo4j stores:
+Khởi động server:
 
-- graph relationships
-- semantic knowledge connections
-- traversal-friendly data
+```
+uvicorn cat_api_rule_based_neo4j:app --reload
+```
 
-Acts as:
+Swagger UI:
 
-```text
-knowledge graph layer
+```
+http://127.0.0.1:8000/docs
 ```
 
 ---
 
-# Neo4j Graph Structure
+## 9. Luồng hoạt động hệ thống (CAT)
 
-## Nodes
+### 1. Bắt đầu bài thi
 
-```text
-Subject
-Topic
-Question
-Option
-QuestionType
+```
+POST /cat/start/{student_id}/{subject_id}
+```
+
+→ Tạo attempt và khởi tạo năng lực (theta)
+
+---
+
+### 2. Lấy câu hỏi tiếp theo
+
+```
+GET /cat/next/{attempt_id}
+```
+
+Logic:
+
+* Lấy topic yếu từ Neo4j
+* Mở rộng prerequisite
+* Chọn câu hỏi phù hợp với theta
+
+---
+
+### 3. Trả lời câu hỏi
+
+```
+POST /cat/answer
+```
+
+Body mẫu:
+
+```
+{
+  "attempt_id": 1,
+  "student_id": 1,
+  "question_id": 10,
+  "selected_option": "A",
+  "time_spent_sec": 30
+}
+```
+
+Xử lý:
+
+* Kiểm tra đúng/sai
+* Update theta (IRT)
+* Apply rule engine
+* Update mastery graph
+
+---
+
+### 4. Nộp bài
+
+```
+POST /cat/submit/{attempt_id}
+```
+
+Kết quả:
+
+* final theta
+* mastery theo topic
+
+---
+
+### 5. Xem phân tích năng lực
+
+```
+GET /cat/explain/{student_id}
 ```
 
 ---
 
-## Relationships
+## 10. Quick Run (chạy nhanh toàn bộ hệ thống)
 
-```text
-(:Topic)-[:BELONGS_TO]->(:Subject)
-
-(:Question)-[:BELONGS_TO]->(:Subject)
-
-(:Question)-[:PRIMARY_TOPIC]->(:Topic)
-
-(:Question)-[:HAS_OPTION]->(:Option)
-
-(:Question)-[:HAS_TYPE]->(:QuestionType)
-
-(:Question)-[:RELATED_TO]->(:Topic)
 ```
-
----
-
-# Incremental Sync
-
-The sync engine supports:
-
-```text
-created_at
-updated_at
-deleted_at
-```
-
-Incremental logic:
-
-```sql
-GREATEST(
-    created_at,
-    updated_at,
-    deleted_at
-)
-```
-
-Benefits:
-
-- insert tracking
-- update tracking
-- delete tracking
-
----
-
-# Common Commands
-
-## Start Services
-
-```bash
 docker-compose up -d
-```
+pip install -r requirements.txt
 
----
-
-## Stop Services
-
-```bash
-docker-compose down
-```
-
----
-
-## Run ETL
-
-```bash
-python etl_to_postgresql.py
-```
-
----
-
-## Run Graph Sync
-
-```bash
-python postgres_to_neo4j.py
-```
-
----
-
-## Test Connections
-
-```bash
 python test_connections.py
+
+python bootstrap_schema_postgres.py
+psql -U kbs_user -d kbs_adaptive_exam -f "Script seed data.sql"
+python etl_to_postgresql.py
+python postgres_to_neo4j.py
+python load_rules.py
+
+uvicorn cat_api_rule_based_neo4j:app --reload
 ```
 
 ---
 
-# Expected Workflow
+## 11. Troubleshooting
 
-```text
-1. Start Docker
-2. Create schema
-3. Test connection
-4. Load Excel
-5. Sync graph
+### Không kết nối PostgreSQL
+
+```
+docker ps
+```
+
+### Không kết nối Neo4j
+
+* Kiểm tra password trong code
+
+### Không có dữ liệu câu hỏi
+
+* Chưa chạy ETL
+* Chưa sync Neo4j
+
+### Rule không hoạt động
+
+```
+python load_rules.py
 ```
 
 ---
 
-# Recommended Python Version
+## 12. Ghi chú
 
-```text
-Python 3.10+
-```
+Hệ thống được thiết kế theo hướng:
 
----
+* Hybrid Database
+* Rule-based reasoning
+* Adaptive Testing (IRT)
 
-# Dependencies
+Có thể mở rộng:
 
-Typical dependencies:
-
-- psycopg2
-- pandas
-- openpyxl
-- neo4j
-- python-dotenv
-
----
-
-# Notes
-
-- PostgreSQL stores structured data
-- Neo4j stores graph data
-- Excel is used only as ingestion source
-- Incremental sync avoids full reload
-
----
-
-# Author
-
-Knowledge Management System
-
-PostgreSQL → Neo4j ETL + Graph Sync Pipeline
-
+* Sinh câu hỏi bằng LLM
+* Adaptive difficulty nâng cao
+* Dashboard analytics
