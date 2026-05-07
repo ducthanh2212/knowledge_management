@@ -231,6 +231,17 @@ class QuestionProcessor:
             try:
                 subject_id = self.subject_map[row['subject']]
                 topic_id = self.topic_map[row['topic']]
+
+                # Excel column name can vary between datasets.
+                avg_time_val = None
+                if 'avg_time_seconds' in df.columns:
+                    avg_time_val = row.get('avg_time_seconds')
+                elif 'avg_time_sec' in df.columns:
+                    avg_time_val = row.get('avg_time_sec')
+                else:
+                    avg_time_val = 0
+                if pd.isna(avg_time_val):
+                    avg_time_val = 0
                 
                 # Insert question
                 self.db.cursor.execute("""
@@ -251,7 +262,7 @@ class QuestionProcessor:
                     row['explanation'],
                     float(row['difficulty']),
                     int(row['bloom_level']),
-                    int(row['avg_time_seconds']),
+                    int(avg_time_val),
                     row['source_type'],
                     row['source_reference'],
                     True  # is_active
