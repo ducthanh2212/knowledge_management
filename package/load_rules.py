@@ -98,15 +98,22 @@ def load_rules(csv_path, reset=True):
                 session.execute_write(clear_old_rules)
 
             for row in reader:
+                # Skip empty rows
+                if not row["rule_id"] or not row["priority"]:
+                    continue
+
                 rule = {
-                    "rule_id": row["rule_id"],
+                    "rule_id": row["rule_id"].strip(),
                     "priority": int(row["priority"]),
                     "weight": float(row["weight"]),
-                    "description": row["description"],
+                    "description": row["description"].strip(),
                     "delta": float(row["delta"]),
-                    "topic_ids": [int(x) for x in row["topic_ids"].split("|")],
+                    "topic_ids": [
+                        int(x.strip())
+                        for x in row["topic_ids"].split("|")
+                    ],
                     "conditions": [
-                        parse_condition(c)
+                        parse_condition(c.strip())
                         for c in row["conditions"].split(";")
                     ]
                 }
