@@ -46,10 +46,10 @@ VALUES
 
 
 -- 12. attempts
-INSERT INTO attempts (exam_id, student_id, started_at, submitted_at, total_score, max_score, feedback)
+INSERT INTO attempts (exam_id, student_id, subject_id, started_at, submitted_at, total_score, max_score, feedback)
 VALUES
-(1, 1, NOW() - INTERVAL '30 minutes', NOW(), 8, 10, 'Good job'),
-(2, 2, NOW() - INTERVAL '25 minutes', NOW(), 6, 10, 'Need improvement');
+(1, 1, 1, NOW() - INTERVAL '30 minutes', NOW(), 8, 10, 'Good job'),
+(2, 2, 1, NOW() - INTERVAL '25 minutes', NOW(), 6, 10, 'Need improvement');
 
 
 -- 13. attempt_answers

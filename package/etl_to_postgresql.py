@@ -24,7 +24,7 @@ DB_CONFIG = {
     "password": "kbs_password"
 }
 
-EXCEL_FILE = r"D:\master's degree\knowledge_management\term\source\questions\excel_question\questions_week3_fixed_complete.xlsx"
+EXCEL_FILE = r"D:\HCMUE\[PG_HK2]\KBS\[FINAL Proj]\anhThanh\knowledge_management\package\questions_week3_fixed_complete.xlsx"
 
 # Setup logging
 logging.basicConfig(
